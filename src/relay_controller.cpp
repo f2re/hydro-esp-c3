@@ -32,3 +32,9 @@ float RelayController::progress() const {
     if (now >= _endTime) return 1.0f;
     return 1.0f - (float)(_endTime - now) / (float)_totalMs;
 }
+uint16_t RelayController::remainingSec() const {
+    if (!_active || _endTime == 0) return 0;
+    uint32_t now = millis();
+    if (now >= _endTime) return 0;
+    return (uint16_t)((_endTime - now) / 1000);
+}

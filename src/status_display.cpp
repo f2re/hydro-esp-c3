@@ -83,6 +83,16 @@ void StatusDisplay::printBootStep(const char* icon, const char* msg,
     Serial.println();
 }
 
+void StatusDisplay::printSchedule() {
+    Serial.println(DIM "  📋  Расписание:" RST);
+    for (uint8_t i = 0; i < SCHEDULE_COUNT; i++) {
+        Serial.printf("      · %02d:%02d  %ds\n",
+            WATERING_SCHEDULE[i].hour,
+            WATERING_SCHEDULE[i].minute,
+            WATERING_SCHEDULE[i].duration_sec);
+    }
+}
+
 // ── Основной дашборд ────────────────────────────────────────
 void StatusDisplay::draw(NTPManager* ntp,
                           RelayController* relay,

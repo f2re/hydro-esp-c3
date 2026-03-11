@@ -12,6 +12,7 @@ public:
                        const char* msg,
                        bool ok,
                        const String& detail = "");
+    void printSchedule();                   // напечатать расписание в Serial
     void draw(NTPManager* ntp,
               RelayController* relay,
               WiFiManager* wifi);           // полная перерисовка дашборда
