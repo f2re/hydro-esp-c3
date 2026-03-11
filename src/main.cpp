@@ -1,83 +1,109 @@
 #include <Arduino.h>
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
+#include "config.h"
+#include "wifi_manager.h"
+#include "ntp_manager.h"
+#include "relay_controller.h"
+#include "scheduler.h"
+#include "status_display.h"   // ANSI Serial
+#include "oled_display.h"     // OLED
 
-#define RELAY_PIN  4
-#define LED_PIN    8
-#define BTN_PIN    9
+WiFiManager     wifiMgr;
+NTPManager      ntpMgr;
+RelayController relay;
+Scheduler       scheduler;
+StatusDisplay   serial;
+OledDisplay     oled;
 
-const uint32_t ON_TIME  = 5000;
-const uint32_t OFF_TIME = 10000;
-
-bool     relayState = false;
-uint32_t lastSwitch = 0;
-
-void relayOn() {
-    relayState = true;
-    digitalWrite(RELAY_PIN, HIGH);   // тянем к GND → реле ВКЛ (в режиме Open Drain)
-    digitalWrite(LED_PIN,   LOW);
-    Serial.println(">>> НАСОС ВКЛ");
-}
-
-void relayOff() {
-    relayState = false;
-    digitalWrite(RELAY_PIN, LOW);  // отпускаем (высокий импеданс)
-    digitalWrite(LED_PIN,   HIGH);
-    Serial.println(">>> насос выкл");
-}
+unsigned long lastSerial = 0;
+unsigned long lastOled   = 0;
+bool          btnPrev    = HIGH;
 
 void setup() {
     // Реле ВЫКЛ первым делом
-    pinMode(RELAY_PIN, OUTPUT_OPEN_DRAIN); // Ключевое изменение для стабильности
+    pinMode(RELAY_PIN, OUTPUT_OPEN_DRAIN);
     digitalWrite(RELAY_PIN, LOW);
 
-    // Отключаем Brown-out детектор
+    // Отключаем Brown-out детектор для стабильности
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
     Serial.begin(115200);
-    pinMode(LED_PIN, OUTPUT);
-    pinMode(BTN_PIN, INPUT_PULLUP);
+    delay(1500);
+
+    pinMode(LED_PIN,    OUTPUT);
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
     digitalWrite(LED_PIN, HIGH);
 
-    delay(1000);
-    Serial.println("=== RELAY TEST (open drain) ===");
+    oled.begin();
 
-    lastSwitch = millis();
-    relayOn();
+    // ── Загрузочная последовательность ──
+    serial.printBoot();
+    oled.drawBoot(1, "Init...");
+
+    relay.begin();
+
+    oled.drawBoot(2, "WiFi...");
+    serial.printBootStep("📡", "WiFi", false, "");
+    bool wOk = wifiMgr.connect(WIFI_SSID, WIFI_PASSWORD, WIFI_TIMEOUT_MS);
+    serial.printBootStep("📡", "WiFi", wOk, wifiMgr.localIP());
+    oled.drawBoot(2, wOk ? "WiFi OK" : "WiFi FAIL");
+
+    oled.drawBoot(3, "NTP...");
+    if (wOk) {
+        ntpMgr.begin();
+        serial.printBootStep("🕐", "NTP",
+            ntpMgr.isSynced(), ntpMgr.getTimeString());
+        oled.drawBoot(3, ntpMgr.isSynced() ? "NTP OK" : "NTP wait");
+    }
+
+    scheduler.begin(&relay, &ntpMgr);
+    oled.drawBoot(4, "Ready!");
+    serial.printSchedule();
+    delay(1500);
 }
 
 void loop() {
-    uint32_t now     = millis();
-    uint32_t elapsed = now - lastSwitch;
+    wifiMgr.ensureConnected(WIFI_SSID, WIFI_PASSWORD);
+    ntpMgr.update();
+    relay.update();
+    scheduler.update();
 
-    // ── Авто-цикл ─────────────────────────────────────
-    if (relayState && elapsed >= ON_TIME) {
-        lastSwitch = now;
-        relayOff();
-    } else if (!relayState && elapsed >= OFF_TIME) {
-        lastSwitch = now;
-        relayOn();
+    // ── LED: мигает при поливе, выкл в покое ─────────────
+    if (relay.isOn()) {
+        digitalWrite(LED_PIN, (millis() / 500) % 2 == 0 ? LOW : HIGH);
+    } else {
+        digitalWrite(LED_PIN, HIGH);
     }
 
-    // ── BOOT кнопка: ручной toggle ────────────────────
-    static bool btnPrev = HIGH;
-    bool btnNow = digitalRead(BTN_PIN);
-    if (btnPrev == HIGH && btnNow == LOW) {
-        lastSwitch = now;
-        if (relayState) relayOff();
-        else            relayOn();
+    // ── BOOT кнопка: ручное переключение страниц или ручной полив ──
+    bool btnNow = digitalRead(BUTTON_PIN);
+    if (btnPrev == HIGH && btnNow == LOW) { // нажата
+        if (relay.isOn()) {
+            // Если полив идет - выключаем его
+            relay.off();
+            Serial.println("[BTN] Manual stop");
+        } else {
+            // Если полив не идет - переключаем страницу OLED
+            DisplayPage nextPage = (DisplayPage)((oled.currentPage() + 1) % PAGE_COUNT);
+            oled.showPage(nextPage);
+            Serial.printf("[BTN] Page switch to %d\n", nextPage);
+        }
     }
+    // Длинное нажатие или другая логика для ручного запуска полива может быть добавлена здесь,
+    // но для простоты оставим текущую логику кнопки.
     btnPrev = btnNow;
 
-    // ── Статус каждую секунду ─────────────────────────
-    static uint32_t lastLog = 0;
-    if (now - lastLog >= 1000) {
-        lastLog = now;
-        uint32_t rem = relayState
-            ? (ON_TIME  - elapsed) / 1000
-            : (OFF_TIME - elapsed) / 1000;
-        Serial.printf("  [%s] осталось %ds\n",
-            relayState ? "ВКЛ " : "выкл", rem);
+    // ── OLED: обновление каждую секунду (внутри метода update своя логика ротации) ──
+    if (millis() - lastOled >= 1000) {
+        lastOled = millis();
+        oled.update(&ntpMgr, &relay, &wifiMgr);
+    }
+
+    // ── Serial ANSI: каждые 5 сек ─────────────────────────
+    if (millis() - lastSerial >= 5000) {
+        lastSerial = millis();
+        serial.draw(&ntpMgr, &relay, &wifiMgr);
     }
 
     delay(20);
