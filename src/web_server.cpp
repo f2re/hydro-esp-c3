@@ -8,17 +8,26 @@ void WebServerManager::begin(RelayController* r, Scheduler* s, NTPManager* n, Wi
     scheduler = s;
     ntp = n;
     wifi = w;
-    server.begin();
     setupRoutes();
+    server.begin();
+    Serial.println("[HTTP] Web server started on port 80");
 }
-
 void WebServerManager::setupRoutes() {
+    Serial.println("[HTTP] Registering routes...");
+
     server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        Serial.printf("[HTTP] GET / from %s\n", request->client()->remoteIP().toString().c_str());
         request->send_P(200, "text/html", WEB_UI_HTML);
     });
 
+    server.on("/ping", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send(200, "text/plain", "pong");
+    });
+
     server.on("/api/status", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        Serial.printf("[HTTP] GET /api/status from %s\n", request->client()->remoteIP().toString().c_str());
         JsonDocument doc;
+
         doc["time"] = ntp->getTimeString();
         doc["date"] = ntp->getDateString();
         doc["uptime"] = millis() / 1000;
@@ -134,6 +143,7 @@ void WebServerManager::setupRoutes() {
 
     // Captive Portal
     server.onNotFound([this](AsyncWebServerRequest *request) {
+        Serial.printf("[HTTP] 404/Captive: %s %s from %s\n", request->methodToString(), request->url().c_str(), request->client()->remoteIP().toString().c_str());
         if (wifi->isAPMode()) {
             request->send_P(200, "text/html", WEB_UI_HTML);
         } else {

@@ -9,6 +9,7 @@
 #include "status_display.h"
 #include "oled_display.h"
 #include "config_storage.h"
+#include <ESPmDNS.h>
 #include "web_server.h"
 
 WiFiManager      wifiMgr;
@@ -27,7 +28,7 @@ Config        appConfig;
 void setup() {
     // Реле ВЫКЛ первым делом
     pinMode(RELAY_PIN, OUTPUT_OPEN_DRAIN);
-    digitalWrite(RELAY_PIN, LOW);
+    digitalWrite(RELAY_PIN, RELAY_OFF);
 
     // Отключаем Brown-out детектор
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
@@ -73,6 +74,9 @@ void setup() {
     }
 
     webSrv.begin(&relay, &scheduler, &ntpMgr, &wifiMgr);
+    if (MDNS.begin("hydro")) {
+        Serial.println("[mDNS] Responding at http://hydro.local");
+    }
 
     oled.drawBoot(4, "Ready!");
     serial.printSchedule();
