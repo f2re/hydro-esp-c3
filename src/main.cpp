@@ -6,26 +6,30 @@
 #include "ntp_manager.h"
 #include "relay_controller.h"
 #include "scheduler.h"
-#include "status_display.h"   // ANSI Serial
-#include "oled_display.h"     // OLED
+#include "status_display.h"
+#include "oled_display.h"
+#include "config_storage.h"
+#include "web_server.h"
 
-WiFiManager     wifiMgr;
-NTPManager      ntpMgr;
-RelayController relay;
-Scheduler       scheduler;
-StatusDisplay   serial;
-OledDisplay     oled;
+WiFiManager      wifiMgr;
+NTPManager       ntpMgr;
+RelayController  relay;
+Scheduler        scheduler;
+StatusDisplay    serial;
+OledDisplay      oled;
+WebServerManager webSrv;
 
 unsigned long lastSerial = 0;
 unsigned long lastOled   = 0;
 bool          btnPrev    = HIGH;
+Config        appConfig;
 
 void setup() {
     // Реле ВЫКЛ первым делом
     pinMode(RELAY_PIN, OUTPUT_OPEN_DRAIN);
     digitalWrite(RELAY_PIN, LOW);
 
-    // Отключаем Brown-out детектор для стабильности
+    // Отключаем Brown-out детектор
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
     Serial.begin(115200);
@@ -35,72 +39,85 @@ void setup() {
     pinMode(BUTTON_PIN, INPUT_PULLUP);
     digitalWrite(LED_PIN, HIGH);
 
-    oled.begin();
+    configStorage.begin();
+    configStorage.load(appConfig);
 
-    // ── Загрузочная последовательность ──
+    oled.begin();
     serial.printBoot();
     oled.drawBoot(1, "Init...");
 
     relay.begin();
+    scheduler.begin(&relay, &ntpMgr);
+    scheduler.updateConfig(appConfig.schedule, appConfig.schedule_count);
 
     oled.drawBoot(2, "WiFi...");
     serial.printBootStep("📡", "WiFi", false, "");
-    bool wOk = wifiMgr.connect(WIFI_SSID, WIFI_PASSWORD, WIFI_TIMEOUT_MS);
-    serial.printBootStep("📡", "WiFi", wOk, wifiMgr.localIP());
-    oled.drawBoot(2, wOk ? "WiFi OK" : "WiFi FAIL");
+    
+    bool wOk = wifiMgr.connect(appConfig.wifi_ssid.c_str(), appConfig.wifi_pass.c_str(), WIFI_TIMEOUT_MS);
+    if (!wOk) {
+        serial.printBootStep("📡", "WiFi", false, "Starting AP...");
+        oled.drawBoot(2, "AP Mode");
+        wifiMgr.startAP();
+    } else {
+        serial.printBootStep("📡", "WiFi", true, wifiMgr.localIP());
+        oled.drawBoot(2, "WiFi OK");
+    }
 
     oled.drawBoot(3, "NTP...");
+    ntpMgr.begin();
+    ntpMgr.setTimeOffset(appConfig.timezone_offset);
+    
     if (wOk) {
-        ntpMgr.begin();
-        serial.printBootStep("🕐", "NTP",
-            ntpMgr.isSynced(), ntpMgr.getTimeString());
+        serial.printBootStep("🕐", "NTP", ntpMgr.isSynced(), ntpMgr.getTimeString());
         oled.drawBoot(3, ntpMgr.isSynced() ? "NTP OK" : "NTP wait");
     }
 
-    scheduler.begin(&relay, &ntpMgr);
+    webSrv.begin(&relay, &scheduler, &ntpMgr, &wifiMgr);
+
     oled.drawBoot(4, "Ready!");
     serial.printSchedule();
     delay(1500);
 }
 
 void loop() {
-    wifiMgr.ensureConnected(WIFI_SSID, WIFI_PASSWORD);
+    if (!wifiMgr.isAPMode()) {
+        wifiMgr.ensureConnected(appConfig.wifi_ssid.c_str(), appConfig.wifi_pass.c_str());
+    } else {
+        wifiMgr.updateDNS();
+    }
+    
     ntpMgr.update();
     relay.update();
     scheduler.update();
 
-    // ── LED: мигает при поливе, выкл в покое ─────────────
+    // LED
     if (relay.isOn()) {
         digitalWrite(LED_PIN, (millis() / 500) % 2 == 0 ? LOW : HIGH);
     } else {
         digitalWrite(LED_PIN, HIGH);
     }
 
-    // ── BOOT кнопка: ручное переключение страниц или ручной полив ──
+    // Button
     bool btnNow = digitalRead(BUTTON_PIN);
-    if (btnPrev == HIGH && btnNow == LOW) { // нажата
+    if (btnPrev == HIGH && btnNow == LOW) {
         if (relay.isOn()) {
-            // Если полив идет - выключаем его
             relay.off();
             Serial.println("[BTN] Manual stop");
         } else {
-            // Если полив не идет - переключаем страницу OLED
             DisplayPage nextPage = (DisplayPage)((oled.currentPage() + 1) % PAGE_COUNT);
             oled.showPage(nextPage);
             Serial.printf("[BTN] Page switch to %d\n", nextPage);
         }
     }
-    // Длинное нажатие или другая логика для ручного запуска полива может быть добавлена здесь,
-    // но для простоты оставим текущую логику кнопки.
     btnPrev = btnNow;
 
-    // ── OLED: обновление каждую секунду (внутри метода update своя логика ротации) ──
+    // OLED
     if (millis() - lastOled >= 1000) {
         lastOled = millis();
         oled.update(&ntpMgr, &relay, &wifiMgr);
     }
 
-    // ── Serial ANSI: каждые 5 сек ─────────────────────────
+    // Serial
     if (millis() - lastSerial >= 5000) {
         lastSerial = millis();
         serial.draw(&ntpMgr, &relay, &wifiMgr);
