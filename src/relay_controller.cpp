@@ -1,13 +1,14 @@
 #include "relay_controller.h"
 
 void RelayController::begin() {
-    pinMode(RELAY_PIN, OUTPUT);
+    pinMode(RELAY_PIN, OUTPUT_OPEN_DRAIN);
     off();
 }
 void RelayController::on() {
-    _active = true; _endTime = 0;
-    digitalWrite(RELAY_PIN, RELAY_ON);
-    Serial.println("[Relay] ON");
+    // Если включаем вручную без времени, ставим защитный таймаут 1 час,
+    // чтобы работали таймеры и индикаторы на экране.
+    runFor(3600);
+    Serial.println("[Relay] ON (Manual 1h limit)");
 }
 void RelayController::off() {
     _active = false; _endTime = 0;
@@ -24,7 +25,9 @@ void RelayController::runFor(uint16_t seconds) {
     Serial.printf("[Relay] ON for %d sec\n", seconds);
 }
 void RelayController::update() {
-    if (_active && _endTime > 0 && millis() >= _endTime) off();
+    if (_active && _endTime > 0) {
+        if ((long)(millis() - _endTime) >= 0) off();
+    }
 }
 float RelayController::progress() const {
     if (!_active || _endTime == 0) return -1.0f;

@@ -17,7 +17,7 @@ void WebServerManager::setupRoutes() {
 
     server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
         Serial.printf("[HTTP] GET / from %s\n", request->client()->remoteIP().toString().c_str());
-        request->send_P(200, "text/html", WEB_UI_HTML);
+        request->send(200, "text/html", WEB_UI_HTML);
     });
 
     server.on("/ping", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -42,7 +42,11 @@ void WebServerManager::setupRoutes() {
     });
 
     server.on("/api/relay/on", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        relay->on();
+        uint16_t duration = 60; // По умолчанию 60 сек
+        if (request->hasParam("duration")) {
+            duration = request->getParam("duration")->value().toInt();
+        }
+        relay->runFor(duration);
         request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
 
@@ -67,13 +71,27 @@ void WebServerManager::setupRoutes() {
         request->send(200, "application/json", response);
     });
 
+    server.on("/api/schedule/reset", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        Config cfg;
+        // Загружаем дефолт (в configStorage.load зашито заполнение дефолтом если файла нет)
+        // Но чтобы сбросить принудительно, нам нужно обнулить текущий и загрузить из констант
+        cfg.schedule_count = 0;
+        for (int i = 0; i < SCHEDULE_COUNT; i++) {
+            cfg.schedule[i] = WATERING_SCHEDULE[i];
+            cfg.schedule_count++;
+        }
+        configStorage.save(cfg);
+        scheduler->updateConfig(cfg.schedule, cfg.schedule_count);
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+
     AsyncCallbackJsonWebHandler* scheduleHandler = new AsyncCallbackJsonWebHandler("/api/schedule", [this](AsyncWebServerRequest *request, JsonVariant &json) {
         JsonArray arr = json.as<JsonArray>();
         Config cfg;
         configStorage.load(cfg);
         cfg.schedule_count = 0;
         for (JsonObject obj : arr) {
-            if (cfg.schedule_count >= 16) break;
+            if (cfg.schedule_count >= 32) break; // Увеличили лимит до 32
             cfg.schedule[cfg.schedule_count].hour = obj["h"];
             cfg.schedule[cfg.schedule_count].minute = obj["m"];
             cfg.schedule[cfg.schedule_count].duration_sec = obj["d"];
@@ -84,6 +102,12 @@ void WebServerManager::setupRoutes() {
         request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
     server.addHandler(scheduleHandler);
+
+    server.on("/api/reboot", HTTP_POST, [](AsyncWebServerRequest *request) {
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+        delay(500);
+        ESP.restart();
+    });
 
     server.on("/api/config", HTTP_GET, [this](AsyncWebServerRequest *request) {
         Config cfg;
@@ -145,7 +169,7 @@ void WebServerManager::setupRoutes() {
     server.onNotFound([this](AsyncWebServerRequest *request) {
         Serial.printf("[HTTP] 404/Captive: %s %s from %s\n", request->methodToString(), request->url().c_str(), request->client()->remoteIP().toString().c_str());
         if (wifi->isAPMode()) {
-            request->send_P(200, "text/html", WEB_UI_HTML);
+            request->send(200, "text/html", WEB_UI_HTML);
         } else {
             request->send(404);
         }

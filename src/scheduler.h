@@ -15,6 +15,6 @@ private:
     RelayController* _relay = nullptr;
     NTPManager* _ntp = nullptr;
     uint8_t _lastCheckedMinute = 255;
-    WateringSlot _schedule[16];
+    WateringSlot _schedule[48];
     uint8_t _count = 0;
 };

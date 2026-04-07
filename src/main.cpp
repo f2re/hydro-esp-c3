@@ -26,10 +26,6 @@ bool          btnPrev    = HIGH;
 Config        appConfig;
 
 void setup() {
-    // Реле ВЫКЛ первым делом
-    pinMode(RELAY_PIN, OUTPUT_OPEN_DRAIN);
-    digitalWrite(RELAY_PIN, RELAY_OFF);
-
     // Отключаем Brown-out детектор
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
@@ -108,9 +104,10 @@ void loop() {
             relay.off();
             Serial.println("[BTN] Manual stop");
         } else {
-            DisplayPage nextPage = (DisplayPage)((oled.currentPage() + 1) % PAGE_COUNT);
-            oled.showPage(nextPage);
-            Serial.printf("[BTN] Page switch to %d\n", nextPage);
+            // Если реле выключено, долгое нажатие или обычное нажатие
+            // теперь будет запускать полив на 60 секунд.
+            relay.runFor(60);
+            Serial.println("[BTN] Manual start 60s");
         }
     }
     btnPrev = btnNow;

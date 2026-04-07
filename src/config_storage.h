@@ -7,7 +7,7 @@ struct Config {
     String wifi_ssid;
     String wifi_pass;
     int timezone_offset;
-    WateringSlot schedule[16];
+    WateringSlot schedule[48];
     uint8_t schedule_count;
 };
 

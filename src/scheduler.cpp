@@ -5,7 +5,7 @@ void Scheduler::begin(RelayController* relay, NTPManager* ntp) {
 }
 
 void Scheduler::updateConfig(const WateringSlot* schedule, uint8_t count) {
-    _count = count > 16 ? 16 : count;
+    _count = count > 48 ? 48 : count;
     for (int i = 0; i < _count; i++) {
         _schedule[i] = schedule[i];
     }
@@ -14,18 +14,21 @@ void Scheduler::updateConfig(const WateringSlot* schedule, uint8_t count) {
 void Scheduler::update() {
     if (!_relay || !_ntp || !_ntp->isSynced()) return;
     
+    // Если реле уже включено (например, вручную), не пытаемся запустить новый слот
+    if (_relay->isOn()) return;
+
     uint8_t m = _ntp->getMinute();
     if (m == _lastCheckedMinute) return;
     _lastCheckedMinute = m;
 
     uint8_t h = _ntp->getHour();
+
     for (uint8_t i = 0; i < _count; i++) {
         if (h == _schedule[i].hour && m == _schedule[i].minute) {
-            if (!_relay->isOn()) {
-                Serial.printf("[Scheduler] Slot %d: %02d:%02d → %d sec\n",
-                    i, h, m, _schedule[i].duration_sec);
-                _relay->runFor(_schedule[i].duration_sec);
-            }
+            Serial.printf("[Scheduler] Slot %d: %02d:%02d → %d sec\n",
+                i, h, m, _schedule[i].duration_sec);
+            _relay->runFor(_schedule[i].duration_sec);
+            break; // Запускаем только один слот в минуту
         }
     }
 }

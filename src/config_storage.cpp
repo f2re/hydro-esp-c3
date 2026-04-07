@@ -10,7 +10,7 @@ void ConfigStorage::load(Config &config) {
     config.timezone_offset = prefs.getInt("tz", TIMEZONE_OFFSET);
     
     config.schedule_count = prefs.getUChar("sched_cnt", SCHEDULE_COUNT);
-    if (config.schedule_count > 16) config.schedule_count = 16;
+    if (config.schedule_count > 48) config.schedule_count = 48;
 
     size_t len = prefs.getBytesLength("sched");
     if (len > 0 && len == config.schedule_count * sizeof(WateringSlot)) {
