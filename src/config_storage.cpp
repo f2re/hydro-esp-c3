@@ -36,6 +36,17 @@ void ConfigStorage::load(Config &config) {
         config.delivery_efficiency_pct = 85;
     }
 
+    config.calibration_sample_count = prefs.getUChar("cal_samp", 0);
+    if (config.calibration_sample_count > 9) config.calibration_sample_count = 0;
+    config.calibration_cv_x100 = prefs.getUShort("cal_cv100", 0);
+    if (config.calibration_cv_x100 > 50000U) config.calibration_cv_x100 = 0;
+    config.calibration_local_epoch = prefs.getUInt("cal_epoch", 0);
+    if (config.pump_flow_ml_min == 0) {
+        config.calibration_sample_count = 0;
+        config.calibration_cv_x100 = 0;
+        config.calibration_local_epoch = 0;
+    }
+
     uint8_t count = prefs.getUChar("sched_cnt", SCHEDULE_COUNT);
     if (count > MAX_SCHEDULE_SLOTS) {
         loadFactorySchedule(config);
@@ -74,6 +85,9 @@ void ConfigStorage::save(const Config &config) {
     prefs.putBool("auto", config.automation_enabled);
     prefs.putUInt("flow_ml", config.pump_flow_ml_min);
     prefs.putUChar("eff_pct", config.delivery_efficiency_pct);
+    prefs.putUChar("cal_samp", config.calibration_sample_count);
+    prefs.putUShort("cal_cv100", config.calibration_cv_x100);
+    prefs.putUInt("cal_epoch", config.calibration_local_epoch);
     prefs.putUChar("sched_cnt", count);
 
     if (count == 0) {
