@@ -22,13 +22,14 @@
 #define HYDRO_DISABLE_BROWNOUT_WORKAROUND 1
 #endif
 
-// ── Product limits ────────────────────────────────────────────────────────
-#define MAX_SCHEDULE_SLOTS        48
-#define MAX_WATERING_SECONDS      3600
-#define DEFAULT_MANUAL_SECONDS    60
-#define WIFI_TIMEOUT_MS           15000UL
-#define WIFI_RETRY_INTERVAL_MS    30000UL
-#define NTP_SYNC_INTERVAL         3600000UL
+// ── Product limits / contracts ───────────────────────────────────────────
+#define MAX_SCHEDULE_SLOTS                48
+#define MAX_WATERING_SECONDS              3600
+#define DEFAULT_MANUAL_SECONDS            60
+#define HYDRO_CALIBRATION_PROTOCOL_VERSION 1
+#define WIFI_TIMEOUT_MS                   15000UL
+#define WIFI_RETRY_INTERVAL_MS            30000UL
+#define NTP_SYNC_INTERVAL                 3600000UL
 
 #define AP_SSID                   "HydroESP-Setup"
 #define MDNS_HOST                 "hydro"
