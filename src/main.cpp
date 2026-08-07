@@ -5,6 +5,7 @@
 #include "version.h"
 #include "wifi_manager.h"
 #include "ntp_manager.h"
+#include "event_log.h"
 #include "relay_controller.h"
 #include "scheduler.h"
 #include "status_display.h"
@@ -54,15 +55,12 @@ void updatePhysicalButton() {
             buttonPressedAt = now;
             buttonActionDone = !buttonArmed;
 
-            // Stopping is intentionally immediate; starting requires a hold.
             if (buttonArmed && relay.isOn()) {
-                relay.off();
+                relay.off(PumpStopReason::Manual);
                 buttonActionDone = true;
                 Serial.println("[BTN] Manual stop");
             }
         } else {
-            // A release after boot arms the button. Holding BOOT while resetting
-            // is therefore never interpreted as a pump-start gesture.
             buttonArmed = true;
             buttonPressedAt = 0;
             buttonActionDone = false;
@@ -71,7 +69,7 @@ void updatePhysicalButton() {
 
     if (buttonArmed && buttonStable == LOW && !buttonActionDone && !relay.isOn() &&
         static_cast<uint32_t>(now - buttonPressedAt) >= BUTTON_HOLD_TO_START_MS) {
-        relay.runFor(DEFAULT_MANUAL_SECONDS);
+        relay.runFor(DEFAULT_MANUAL_SECONDS, PumpSource::ButtonManual);
         buttonActionDone = true;
         Serial.printf("[BTN] Manual start %u sec (hold)\n", DEFAULT_MANUAL_SECONDS);
     }
@@ -80,8 +78,6 @@ void updatePhysicalButton() {
 
 void setup() {
 #if HYDRO_DISABLE_BROWNOUT_WORKAROUND
-    // Temporary compatibility workaround for installations with pump-induced
-    // voltage sag. Fix power delivery and set the flag to 0 for production.
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 #endif
 
@@ -98,14 +94,16 @@ void setup() {
 
     configStorage.begin();
     configStorage.load(appConfig);
+    eventLog.begin(&ntpMgr);
 
     oled.begin();
     serial.printBoot();
     oled.drawBoot(1, "Init...");
 
-    relay.begin();
+    relay.begin(&eventLog);
     scheduler.begin(&relay, &ntpMgr);
     scheduler.updateConfig(appConfig.schedule, appConfig.schedule_count);
+    scheduler.setEnabled(appConfig.automation_enabled);
 
     oled.drawBoot(2, "WiFi...");
     serial.printBootStep("📡", "WiFi", false, "");
@@ -132,6 +130,9 @@ void setup() {
         serial.printBootStep("🕐", "NTP", ntpMgr.isSynced(), ntpMgr.getTimeString());
         oled.drawBoot(3, ntpMgr.isSynced() ? "NTP OK" : "NTP wait");
     }
+
+    eventLog.record(EventType::Boot, PumpSource::None, PumpStopReason::None,
+                    appConfig.automation_enabled ? 1 : 0);
 
     webSrv.begin(&relay, &scheduler, &ntpMgr, &wifiMgr);
 

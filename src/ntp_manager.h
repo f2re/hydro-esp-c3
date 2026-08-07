@@ -12,6 +12,7 @@ public:
     uint8_t getMinute() const;
     String getTimeString() const;
     String getDateString() const;
+    uint32_t getLocalEpoch() const;
     void setTimeOffset(int offset_hours);
     int getTimeOffsetHours() const { return _offsetHours; }
 
