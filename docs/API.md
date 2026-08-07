@@ -46,6 +46,7 @@ Provisioning AP: `http://192.168.4.1`
   "pump_flow_lpm": 1.742,
   "delivery_efficiency_pct": 85,
   "hydraulics_calibrated": true,
+  "calibration_protocol_version": 1,
   "calibration_sample_count": 3,
   "calibration_cv_pct": 2.7,
   "calibration_epoch": 1786137735,
@@ -55,6 +56,8 @@ Provisioning AP: `http://192.168.4.1`
 ```
 
 `pump_source`: `none`, `schedule`, `web_manual`, `button_manual`, `calibration`.
+
+`calibration_protocol_version = 0` означает legacy/unknown procedure. Новые серии, созданные текущим мастером, получают `HYDRO_CALIBRATION_PROTOCOL_VERSION = 1`.
 
 `rssi` может отсутствовать в AP-режиме.
 
@@ -108,6 +111,7 @@ Provisioning AP: `http://192.168.4.1`
   "flow_lpm": 1.742,
   "efficiency_pct": 85,
   "calibrated": true,
+  "protocol_version": 1,
   "sample_count": 3,
   "cv_pct": 2.7,
   "calibration_epoch": 1786137735,
@@ -115,11 +119,11 @@ Provisioning AP: `http://192.168.4.1`
 }
 ```
 
-`sample_count` и `cv_pct` описывают **повторяемость серии**, а не точность агрономической нормы.
+`sample_count` и `cv_pct` описывают **повторяемость серии**, а не точность агрономической нормы. `protocol_version` описывает методику, которой получена серия.
 
 ### `POST /api/hydraulics`
 
-Минимальный вариант:
+Минимальный вариант — изменение Q/η без замены metadata существующей серии:
 
 ```json
 {
@@ -128,7 +132,7 @@ Provisioning AP: `http://192.168.4.1`
 }
 ```
 
-С метаданными серии:
+Новая серия:
 
 ```json
 {
@@ -139,12 +143,15 @@ Provisioning AP: `http://192.168.4.1`
 }
 ```
 
-Для restore допускается сохранённый timestamp:
+Если `protocol_version` отсутствует при передаче новой серии, firmware ставит текущий `HYDRO_CALIBRATION_PROTOCOL_VERSION`.
+
+Для restore допускается точное сохранение metadata старой серии:
 
 ```json
 {
   "flow_lpm": 1.742,
   "efficiency_pct": 85,
+  "protocol_version": 1,
   "sample_count": 3,
   "cv_pct": 2.7,
   "calibration_epoch": 1786137735
@@ -155,10 +162,13 @@ Provisioning AP: `http://192.168.4.1`
 
 - `flow_lpm`: `0` для очистки либо 0.05…100 л/мин;
 - `efficiency_pct`: 10…100;
+- `protocol_version`: 0…текущая версия протокола;
 - `sample_count`: 0…9;
 - `cv_pct`: 0…500.
 
-Если `sample_count` не передан, существующие metadata серии сохраняются. Если `flow_lpm=0`, вся calibration metadata очищается. Если новая серия передана без `calibration_epoch`, сервер использует текущее синхронизированное локальное NTP-время либо 0 при отсутствии NTP.
+Если `sample_count` не передан, существующие metadata серии сохраняются. Если `flow_lpm=0`, вся calibration metadata, включая protocol version, очищается. Если новая серия передана без `calibration_epoch`, сервер использует текущее синхронизированное локальное NTP-время либо 0 при отсутствии NTP.
+
+Будущая/неизвестная protocol version не принимается как текущая. Это не позволяет прошивке молча интерпретировать измерение, выполненное по новой неизвестной методике.
 
 Q хранится в NVS целым числом мл/мин; CV — в сотых долях процента.
 
@@ -264,6 +274,8 @@ Manifest standalone/PWA-представления UI.
 ## Совместимость
 
 API v3 добавляет operational mode, hydraulic calibration и current-session event log. Новые необязательные поля могут добавляться без bump, если существующая семантика не меняется. Breaking changes требуют увеличения `HYDRO_API_VERSION`.
+
+Hydraulic calibration имеет отдельную `protocol_version`, потому что изменение методики измерения не обязательно требует breaking-change всего HTTP API.
 
 ## Примеры
 
