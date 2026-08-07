@@ -9,6 +9,8 @@ public:
     void begin(RelayController* relay, NTPManager* ntp);
     void update();
     void updateConfig(const WateringSlot* schedule, uint8_t count);
+    void setEnabled(bool enabled);
+    bool isEnabled() const { return _enabled; }
 
     String getNextWateringString() const;
     bool getNextSlot(WateringSlot& slot, int& minutesUntil) const;
@@ -21,4 +23,5 @@ private:
     uint8_t _lastCheckedMinute = 255;
     WateringSlot _schedule[MAX_SCHEDULE_SLOTS]{};
     uint8_t _count = 0;
+    bool _enabled = true;
 };
