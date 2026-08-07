@@ -44,6 +44,10 @@ String NTPManager::getTimeString() const {
     return (_synced && _client) ? _client->getFormattedTime() : "--:--:--";
 }
 
+uint32_t NTPManager::getLocalEpoch() const {
+    return (_synced && _client) ? static_cast<uint32_t>(_client->getEpochTime()) : 0;
+}
+
 String NTPManager::getDateString() const {
     if (!_synced || !_client) return "--.--.----";
 
