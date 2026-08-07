@@ -6,9 +6,9 @@
 struct Config {
     String wifi_ssid;
     String wifi_pass;
-    int timezone_offset;
-    WateringSlot schedule[48];
-    uint8_t schedule_count;
+    int timezone_offset = TIMEZONE_OFFSET;
+    WateringSlot schedule[MAX_SCHEDULE_SLOTS]{};
+    uint8_t schedule_count = 0;
 };
 
 class ConfigStorage {
@@ -20,6 +20,7 @@ public:
 
 private:
     Preferences prefs;
+    void loadFactorySchedule(Config &config);
 };
 
 extern ConfigStorage configStorage;
