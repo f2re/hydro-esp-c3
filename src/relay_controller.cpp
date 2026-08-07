@@ -6,9 +6,8 @@ void RelayController::begin() {
 }
 
 void RelayController::on() {
-    // Ручное включение без явной длительности всегда ограничено часом.
-    runFor(3600);
-    Serial.println("[Relay] ON (Manual 1h limit)");
+    runFor(MAX_WATERING_SECONDS);
+    Serial.printf("[Relay] ON (manual limit %u sec)\n", MAX_WATERING_SECONDS);
 }
 
 void RelayController::off() {
@@ -28,8 +27,9 @@ void RelayController::runFor(uint16_t seconds) {
         off();
         return;
     }
+    if (seconds > MAX_WATERING_SECONDS) seconds = MAX_WATERING_SECONDS;
 
-    _totalMs = (uint32_t)seconds * 1000UL;
+    _totalMs = static_cast<uint32_t>(seconds) * 1000UL;
     _active = true;
     _endTime = millis() + _totalMs;
     digitalWrite(RELAY_PIN, RELAY_ON);
@@ -37,20 +37,18 @@ void RelayController::runFor(uint16_t seconds) {
 }
 
 void RelayController::update() {
-    if (_active && _endTime > 0) {
-        // Знаковая разность корректно переживает переполнение millis(),
-        // пока интервал существенно меньше 2^31 мс (у нас максимум 1 час).
-        if ((int32_t)(millis() - _endTime) >= 0) off();
+    if (_active && _endTime > 0 && static_cast<int32_t>(millis() - _endTime) >= 0) {
+        off();
     }
 }
 
 float RelayController::progress() const {
     if (!_active || _endTime == 0 || _totalMs == 0) return -1.0f;
 
-    const int32_t remaining = (int32_t)(_endTime - millis());
+    const int32_t remaining = static_cast<int32_t>(_endTime - millis());
     if (remaining <= 0) return 1.0f;
 
-    float value = 1.0f - (float)remaining / (float)_totalMs;
+    float value = 1.0f - static_cast<float>(remaining) / static_cast<float>(_totalMs);
     if (value < 0.0f) value = 0.0f;
     if (value > 1.0f) value = 1.0f;
     return value;
@@ -59,8 +57,8 @@ float RelayController::progress() const {
 uint16_t RelayController::remainingSec() const {
     if (!_active || _endTime == 0) return 0;
 
-    const int32_t remaining = (int32_t)(_endTime - millis());
+    const int32_t remaining = static_cast<int32_t>(_endTime - millis());
     if (remaining <= 0) return 0;
 
-    return (uint16_t)(((uint32_t)remaining + 999UL) / 1000UL);
+    return static_cast<uint16_t>((static_cast<uint32_t>(remaining) + 999UL) / 1000UL);
 }
