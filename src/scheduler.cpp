@@ -12,23 +12,30 @@ void Scheduler::updateConfig(const WateringSlot* schedule, uint8_t count) {
     }
 }
 
+void Scheduler::setEnabled(bool enabled) {
+    _enabled = enabled;
+    // Consume the current minute when changing mode so resuming automation does
+    // not immediately fire a slot that was intentionally skipped while paused.
+    if (_ntp && _ntp->isSynced()) {
+        _lastCheckedMinute = _ntp->getMinute();
+    }
+}
+
 void Scheduler::update() {
     if (!_relay || !_ntp || !_ntp->isSynced()) return;
 
     const uint8_t minute = _ntp->getMinute();
     if (minute == _lastCheckedMinute) return;
 
-    // Consume the minute even when the pump is already running. This prevents a
-    // scheduled cycle from firing late in the same minute after a manual cycle.
     _lastCheckedMinute = minute;
-    if (_relay->isOn()) return;
+    if (!_enabled || _relay->isOn()) return;
 
     const uint8_t hour = _ntp->getHour();
     for (uint8_t i = 0; i < _count; ++i) {
         if (hour == _schedule[i].hour && minute == _schedule[i].minute) {
             Serial.printf("[Scheduler] Slot %u: %02u:%02u -> %u sec\n",
                           i, hour, minute, _schedule[i].duration_sec);
-            _relay->runFor(_schedule[i].duration_sec);
+            _relay->runFor(_schedule[i].duration_sec, PumpSource::Schedule);
             break;
         }
     }
