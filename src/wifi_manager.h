@@ -9,7 +9,7 @@ public:
     bool isConnected();
     void ensureConnected(const char* ssid, const char* pass);
     String localIP();
-    
+
     void startAP(const char* ap_ssid = "HydroESP-Setup", const char* ap_pass = NULL);
     void updateDNS();
     bool isAPMode() { return ap_mode; }
@@ -17,4 +17,6 @@ public:
 private:
     DNSServer dnsServer;
     bool ap_mode = false;
+    uint32_t lastReconnectAttempt = 0;
+    static constexpr uint32_t RECONNECT_INTERVAL_MS = 10000;
 };
