@@ -46,6 +46,7 @@ void addHydraulicFields(JsonDocument &doc, const Config &cfg) {
     doc["pump_flow_lpm"] = static_cast<float>(cfg.pump_flow_ml_min) / 1000.0f;
     doc["delivery_efficiency_pct"] = cfg.delivery_efficiency_pct;
     doc["hydraulics_calibrated"] = cfg.pump_flow_ml_min > 0;
+    doc["calibration_protocol_version"] = cfg.calibration_protocol_version;
     doc["calibration_sample_count"] = cfg.calibration_sample_count;
     doc["calibration_cv_pct"] = static_cast<float>(cfg.calibration_cv_x100) / 100.0f;
     doc["calibration_epoch"] = cfg.calibration_local_epoch;
@@ -259,6 +260,7 @@ void WebServerManager::setupRoutes() {
         doc["flow_lpm"] = static_cast<float>(cfg.pump_flow_ml_min) / 1000.0f;
         doc["efficiency_pct"] = cfg.delivery_efficiency_pct;
         doc["calibrated"] = cfg.pump_flow_ml_min > 0;
+        doc["protocol_version"] = cfg.calibration_protocol_version;
         doc["sample_count"] = cfg.calibration_sample_count;
         doc["cv_pct"] = static_cast<float>(cfg.calibration_cv_x100) / 100.0f;
         doc["calibration_epoch"] = cfg.calibration_local_epoch;
@@ -293,10 +295,16 @@ void WebServerManager::setupRoutes() {
             const bool hasSamples = !obj["sample_count"].isNull();
             int sampleCount = 0;
             float cvPct = 0.0f;
+            int protocolVersion = HYDRO_CALIBRATION_PROTOCOL_VERSION;
             if (hasSamples) {
                 sampleCount = obj["sample_count"].as<int>();
                 cvPct = obj["cv_pct"] | 0.0f;
-                if (sampleCount < 0 || sampleCount > 9 || !isfinite(cvPct) || cvPct < 0.0f || cvPct > 500.0f) {
+                if (!obj["protocol_version"].isNull()) {
+                    protocolVersion = obj["protocol_version"].as<int>();
+                }
+                if (sampleCount < 0 || sampleCount > 9 ||
+                    !isfinite(cvPct) || cvPct < 0.0f || cvPct > 500.0f ||
+                    protocolVersion < 0 || protocolVersion > HYDRO_CALIBRATION_PROTOCOL_VERSION) {
                     request->send(400, "application/json", "{\"error\":\"invalid_calibration_quality\"}");
                     return;
                 }
@@ -308,10 +316,12 @@ void WebServerManager::setupRoutes() {
             cfg.delivery_efficiency_pct = static_cast<uint8_t>(efficiency);
 
             if (flow == 0.0f) {
+                cfg.calibration_protocol_version = 0;
                 cfg.calibration_sample_count = 0;
                 cfg.calibration_cv_x100 = 0;
                 cfg.calibration_local_epoch = 0;
             } else if (hasSamples) {
+                cfg.calibration_protocol_version = static_cast<uint8_t>(protocolVersion);
                 cfg.calibration_sample_count = static_cast<uint8_t>(sampleCount);
                 cfg.calibration_cv_x100 = static_cast<uint16_t>(lroundf(cvPct * 100.0f));
                 const uint32_t suppliedEpoch = obj["calibration_epoch"] | 0UL;
@@ -330,6 +340,7 @@ void WebServerManager::setupRoutes() {
             doc["flow_lpm"] = static_cast<float>(cfg.pump_flow_ml_min) / 1000.0f;
             doc["efficiency_pct"] = cfg.delivery_efficiency_pct;
             doc["calibrated"] = cfg.pump_flow_ml_min > 0;
+            doc["protocol_version"] = cfg.calibration_protocol_version;
             doc["sample_count"] = cfg.calibration_sample_count;
             doc["cv_pct"] = static_cast<float>(cfg.calibration_cv_x100) / 100.0f;
             doc["calibration_epoch"] = cfg.calibration_local_epoch;
