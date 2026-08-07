@@ -10,6 +10,7 @@ struct Config {
     bool automation_enabled = true;
     uint32_t pump_flow_ml_min = 0;
     uint8_t delivery_efficiency_pct = 85;
+    uint8_t calibration_protocol_version = 0;
     uint8_t calibration_sample_count = 0;
     uint16_t calibration_cv_x100 = 0;
     uint32_t calibration_local_epoch = 0;
