@@ -9,4 +9,4 @@
 #endif
 
 #define HYDRO_PRODUCT_NAME "HydroESP-C3"
-#define HYDRO_API_VERSION  2
+#define HYDRO_API_VERSION  3
