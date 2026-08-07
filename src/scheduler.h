@@ -9,7 +9,10 @@ public:
     void begin(RelayController* relay, NTPManager* ntp);
     void update();
     void updateConfig(const WateringSlot* schedule, uint8_t count);
-    String getNextWateringString();
+
+    String getNextWateringString() const;
+    bool getNextSlot(WateringSlot& slot, int& minutesUntil) const;
+    bool getSlot(uint8_t index, WateringSlot& slot) const;
     uint8_t count() const { return _count; }
 
 private:
