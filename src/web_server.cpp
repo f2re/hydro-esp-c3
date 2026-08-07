@@ -41,6 +41,20 @@ void eventTimestamp(uint32_t localEpoch, char* buffer, size_t size) {
     gmtime_r(&raw, &value);
     strftime(buffer, size, "%Y-%m-%d %H:%M:%S", &value);
 }
+
+void addHydraulicFields(JsonDocument &doc, const Config &cfg) {
+    doc["pump_flow_lpm"] = static_cast<float>(cfg.pump_flow_ml_min) / 1000.0f;
+    doc["delivery_efficiency_pct"] = cfg.delivery_efficiency_pct;
+    doc["hydraulics_calibrated"] = cfg.pump_flow_ml_min > 0;
+    doc["calibration_sample_count"] = cfg.calibration_sample_count;
+    doc["calibration_cv_pct"] = static_cast<float>(cfg.calibration_cv_x100) / 100.0f;
+    doc["calibration_epoch"] = cfg.calibration_local_epoch;
+    if (cfg.calibration_local_epoch) {
+        char timestamp[20];
+        eventTimestamp(cfg.calibration_local_epoch, timestamp, sizeof(timestamp));
+        doc["calibrated_at"] = timestamp;
+    }
+}
 }
 
 void WebServerManager::begin(RelayController* r, Scheduler* s, NTPManager* n, WiFiManager* w) {
@@ -103,9 +117,7 @@ void WebServerManager::setupRoutes() {
         doc["next"] = scheduler->getNextWateringString();
         doc["schedule_count"] = scheduler->count();
         doc["automation_enabled"] = scheduler->isEnabled();
-        doc["pump_flow_lpm"] = static_cast<float>(cfg.pump_flow_ml_min) / 1000.0f;
-        doc["delivery_efficiency_pct"] = cfg.delivery_efficiency_pct;
-        doc["hydraulics_calibrated"] = cfg.pump_flow_ml_min > 0;
+        addHydraulicFields(doc, cfg);
         doc["event_count"] = eventLog.count();
         sendJson(request, doc);
     });
@@ -247,12 +259,20 @@ void WebServerManager::setupRoutes() {
         doc["flow_lpm"] = static_cast<float>(cfg.pump_flow_ml_min) / 1000.0f;
         doc["efficiency_pct"] = cfg.delivery_efficiency_pct;
         doc["calibrated"] = cfg.pump_flow_ml_min > 0;
+        doc["sample_count"] = cfg.calibration_sample_count;
+        doc["cv_pct"] = static_cast<float>(cfg.calibration_cv_x100) / 100.0f;
+        doc["calibration_epoch"] = cfg.calibration_local_epoch;
+        if (cfg.calibration_local_epoch) {
+            char timestamp[20];
+            eventTimestamp(cfg.calibration_local_epoch, timestamp, sizeof(timestamp));
+            doc["calibrated_at"] = timestamp;
+        }
         sendJson(request, doc);
     });
 
     AsyncCallbackJsonWebHandler* hydraulicsHandler = new AsyncCallbackJsonWebHandler(
         "/api/hydraulics",
-        [](AsyncWebServerRequest *request, JsonVariant &json) {
+        [this](AsyncWebServerRequest *request, JsonVariant &json) {
             if (!json.is<JsonObject>()) {
                 request->send(400, "application/json", "{\"error\":\"hydraulics_must_be_object\"}");
                 return;
@@ -270,10 +290,36 @@ void WebServerManager::setupRoutes() {
                 return;
             }
 
+            const bool hasSamples = !obj["sample_count"].isNull();
+            int sampleCount = 0;
+            float cvPct = 0.0f;
+            if (hasSamples) {
+                sampleCount = obj["sample_count"].as<int>();
+                cvPct = obj["cv_pct"] | 0.0f;
+                if (sampleCount < 0 || sampleCount > 9 || !isfinite(cvPct) || cvPct < 0.0f || cvPct > 500.0f) {
+                    request->send(400, "application/json", "{\"error\":\"invalid_calibration_quality\"}");
+                    return;
+                }
+            }
+
             Config cfg;
             configStorage.load(cfg);
             cfg.pump_flow_ml_min = static_cast<uint32_t>(lroundf(flow * 1000.0f));
             cfg.delivery_efficiency_pct = static_cast<uint8_t>(efficiency);
+
+            if (flow == 0.0f) {
+                cfg.calibration_sample_count = 0;
+                cfg.calibration_cv_x100 = 0;
+                cfg.calibration_local_epoch = 0;
+            } else if (hasSamples) {
+                cfg.calibration_sample_count = static_cast<uint8_t>(sampleCount);
+                cfg.calibration_cv_x100 = static_cast<uint16_t>(lroundf(cvPct * 100.0f));
+                const uint32_t suppliedEpoch = obj["calibration_epoch"] | 0UL;
+                cfg.calibration_local_epoch = suppliedEpoch
+                    ? suppliedEpoch
+                    : (ntp->isSynced() ? ntp->getLocalEpoch() : 0);
+            }
+
             configStorage.save(cfg);
             eventLog.record(EventType::HydraulicsSaved, PumpSource::None,
                             PumpStopReason::None,
@@ -284,6 +330,14 @@ void WebServerManager::setupRoutes() {
             doc["flow_lpm"] = static_cast<float>(cfg.pump_flow_ml_min) / 1000.0f;
             doc["efficiency_pct"] = cfg.delivery_efficiency_pct;
             doc["calibrated"] = cfg.pump_flow_ml_min > 0;
+            doc["sample_count"] = cfg.calibration_sample_count;
+            doc["cv_pct"] = static_cast<float>(cfg.calibration_cv_x100) / 100.0f;
+            doc["calibration_epoch"] = cfg.calibration_local_epoch;
+            if (cfg.calibration_local_epoch) {
+                char timestamp[20];
+                eventTimestamp(cfg.calibration_local_epoch, timestamp, sizeof(timestamp));
+                doc["calibrated_at"] = timestamp;
+            }
             sendJson(request, doc);
         }
     );
