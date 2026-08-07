@@ -34,6 +34,7 @@ uint32_t buttonPressedAt = 0;
 bool buttonRaw = HIGH;
 bool buttonStable = HIGH;
 bool buttonActionDone = false;
+bool buttonArmed = false;
 Config appConfig;
 
 void updatePhysicalButton() {
@@ -51,21 +52,24 @@ void updatePhysicalButton() {
 
         if (buttonStable == LOW) {
             buttonPressedAt = now;
-            buttonActionDone = false;
+            buttonActionDone = !buttonArmed;
 
             // Stopping is intentionally immediate; starting requires a hold.
-            if (relay.isOn()) {
+            if (buttonArmed && relay.isOn()) {
                 relay.off();
                 buttonActionDone = true;
                 Serial.println("[BTN] Manual stop");
             }
         } else {
+            // A release after boot arms the button. Holding BOOT while resetting
+            // is therefore never interpreted as a pump-start gesture.
+            buttonArmed = true;
             buttonPressedAt = 0;
             buttonActionDone = false;
         }
     }
 
-    if (buttonStable == LOW && !buttonActionDone && !relay.isOn() &&
+    if (buttonArmed && buttonStable == LOW && !buttonActionDone && !relay.isOn() &&
         static_cast<uint32_t>(now - buttonPressedAt) >= BUTTON_HOLD_TO_START_MS) {
         relay.runFor(DEFAULT_MANUAL_SECONDS);
         buttonActionDone = true;
@@ -90,6 +94,7 @@ void setup() {
     pinMode(BUTTON_PIN, INPUT_PULLUP);
     digitalWrite(LED_PIN, HIGH);
     buttonRaw = buttonStable = digitalRead(BUTTON_PIN);
+    buttonArmed = buttonStable == HIGH;
 
     configStorage.begin();
     configStorage.load(appConfig);
