@@ -1,9 +1,12 @@
 #include "web_server.h"
 #include "web_ui_v2.h"
 #include "version.h"
+#include "event_log.h"
 #include <Update.h>
 #include <AsyncJson.h>
 #include <esp_system.h>
+#include <math.h>
+#include <time.h>
 
 namespace {
 const char* resetReasonText(esp_reset_reason_t reason) {
@@ -22,10 +25,21 @@ const char* resetReasonText(esp_reset_reason_t reason) {
     }
 }
 
-void sendJson(AsyncWebServerRequest *request, JsonDocument &doc) {
+void sendJson(AsyncWebServerRequest *request, JsonDocument &doc, int status = 200) {
     String response;
     serializeJson(doc, response);
-    request->send(200, "application/json", response);
+    request->send(status, "application/json", response);
+}
+
+void eventTimestamp(uint32_t localEpoch, char* buffer, size_t size) {
+    if (!localEpoch || size == 0) {
+        if (size) buffer[0] = '\0';
+        return;
+    }
+    const time_t raw = static_cast<time_t>(localEpoch);
+    struct tm value {};
+    gmtime_r(&raw, &value);
+    strftime(buffer, size, "%Y-%m-%d %H:%M:%S", &value);
 }
 }
 
@@ -65,6 +79,9 @@ void WebServerManager::setupRoutes() {
     });
 
     server.on("/api/status", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        Config cfg;
+        configStorage.load(cfg);
+
         JsonDocument doc;
         doc["api_version"] = HYDRO_API_VERSION;
         doc["version"] = HYDRO_VERSION;
@@ -76,6 +93,7 @@ void WebServerManager::setupRoutes() {
         doc["relay"] = relay->isOn();
         doc["relay_remaining"] = relay->remainingSec();
         doc["relay_progress"] = relay->progress();
+        doc["pump_source"] = EventLog::sourceCode(relay->source());
         doc["ssid"] = wifi->isAPMode() ? AP_SSID : WiFi.SSID();
         if (!wifi->isAPMode() && WiFi.status() == WL_CONNECTED) {
             doc["rssi"] = WiFi.RSSI();
@@ -84,6 +102,11 @@ void WebServerManager::setupRoutes() {
         doc["ap_mode"] = wifi->isAPMode();
         doc["next"] = scheduler->getNextWateringString();
         doc["schedule_count"] = scheduler->count();
+        doc["automation_enabled"] = scheduler->isEnabled();
+        doc["pump_flow_lpm"] = static_cast<float>(cfg.pump_flow_ml_min) / 1000.0f;
+        doc["delivery_efficiency_pct"] = cfg.delivery_efficiency_pct;
+        doc["hydraulics_calibrated"] = cfg.pump_flow_ml_min > 0;
+        doc["event_count"] = eventLog.count();
         sendJson(request, doc);
     });
 
@@ -100,7 +123,37 @@ void WebServerManager::setupRoutes() {
         doc["free_sketch_space"] = ESP.getFreeSketchSpace();
         doc["reset_reason"] = static_cast<int>(reason);
         doc["reset_reason_text"] = resetReasonText(reason);
+        doc["event_log_capacity"] = EVENT_LOG_CAPACITY;
+        doc["event_log_session_only"] = true;
         sendJson(request, doc);
+    });
+
+    server.on("/api/events", HTTP_GET, [](AsyncWebServerRequest *request) {
+        JsonDocument doc;
+        doc["session_only"] = true;
+        JsonArray arr = doc["events"].to<JsonArray>();
+        for (uint8_t i = 0; i < eventLog.count(); ++i) {
+            OperationEvent event;
+            if (!eventLog.getNewest(i, event)) continue;
+            JsonObject item = arr.add<JsonObject>();
+            item["sequence"] = event.sequence;
+            item["uptime"] = event.uptime_sec;
+            item["type"] = EventLog::typeCode(event.type);
+            item["source"] = EventLog::sourceCode(event.source);
+            item["reason"] = EventLog::stopReasonCode(event.reason);
+            item["value"] = event.value;
+            if (event.local_epoch) {
+                char timestamp[20];
+                eventTimestamp(event.local_epoch, timestamp, sizeof(timestamp));
+                item["timestamp"] = timestamp;
+            }
+        }
+        sendJson(request, doc);
+    });
+
+    server.on("/api/events/clear", HTTP_POST, [](AsyncWebServerRequest *request) {
+        eventLog.clear();
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
 
     server.on("/api/relay/on", HTTP_POST, [this](AsyncWebServerRequest *request) {
@@ -111,14 +164,130 @@ void WebServerManager::setupRoutes() {
         if (duration < 1) duration = DEFAULT_MANUAL_SECONDS;
         if (duration > MAX_WATERING_SECONDS) duration = MAX_WATERING_SECONDS;
 
-        relay->runFor(static_cast<uint16_t>(duration));
+        relay->runFor(static_cast<uint16_t>(duration), PumpSource::WebManual);
         request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
 
     server.on("/api/relay/off", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        relay->off();
+        relay->off(PumpStopReason::Manual);
         request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
+
+    server.on("/api/calibration/start", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        if (scheduler->isEnabled()) {
+            request->send(409, "application/json", "{\"error\":\"automation_must_be_paused\"}");
+            return;
+        }
+        if (relay->isOn()) {
+            request->send(409, "application/json", "{\"error\":\"pump_busy\"}");
+            return;
+        }
+
+        long duration = 30;
+        if (request->hasParam("duration")) {
+            duration = request->getParam("duration")->value().toInt();
+        }
+        if (duration < 5 || duration > 120) {
+            request->send(400, "application/json", "{\"error\":\"calibration_duration_5_120\"}");
+            return;
+        }
+
+        relay->runFor(static_cast<uint16_t>(duration), PumpSource::Calibration);
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+
+    server.on("/api/automation", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        JsonDocument doc;
+        doc["enabled"] = scheduler->isEnabled();
+        sendJson(request, doc);
+    });
+
+    AsyncCallbackJsonWebHandler* automationHandler = new AsyncCallbackJsonWebHandler(
+        "/api/automation",
+        [this](AsyncWebServerRequest *request, JsonVariant &json) {
+            if (!json.is<JsonObject>()) {
+                request->send(400, "application/json", "{\"error\":\"automation_must_be_object\"}");
+                return;
+            }
+            JsonObject obj = json.as<JsonObject>();
+            if (!obj["enabled"].is<bool>()) {
+                request->send(400, "application/json", "{\"error\":\"enabled_must_be_boolean\"}");
+                return;
+            }
+
+            const bool enabled = obj["enabled"].as<bool>();
+            const bool changed = enabled != scheduler->isEnabled();
+
+            if (!enabled && relay->isOn() && relay->source() == PumpSource::Schedule) {
+                relay->off(PumpStopReason::AutomationPaused);
+            }
+            scheduler->setEnabled(enabled);
+
+            Config cfg;
+            configStorage.load(cfg);
+            cfg.automation_enabled = enabled;
+            configStorage.save(cfg);
+
+            if (changed) {
+                eventLog.record(enabled ? EventType::AutomationEnabled : EventType::AutomationPaused);
+            }
+
+            JsonDocument doc;
+            doc["status"] = "ok";
+            doc["enabled"] = enabled;
+            sendJson(request, doc);
+        }
+    );
+    server.addHandler(automationHandler);
+
+    server.on("/api/hydraulics", HTTP_GET, [](AsyncWebServerRequest *request) {
+        Config cfg;
+        configStorage.load(cfg);
+        JsonDocument doc;
+        doc["flow_lpm"] = static_cast<float>(cfg.pump_flow_ml_min) / 1000.0f;
+        doc["efficiency_pct"] = cfg.delivery_efficiency_pct;
+        doc["calibrated"] = cfg.pump_flow_ml_min > 0;
+        sendJson(request, doc);
+    });
+
+    AsyncCallbackJsonWebHandler* hydraulicsHandler = new AsyncCallbackJsonWebHandler(
+        "/api/hydraulics",
+        [](AsyncWebServerRequest *request, JsonVariant &json) {
+            if (!json.is<JsonObject>()) {
+                request->send(400, "application/json", "{\"error\":\"hydraulics_must_be_object\"}");
+                return;
+            }
+            JsonObject obj = json.as<JsonObject>();
+            const float flow = obj["flow_lpm"] | 0.0f;
+            const int efficiency = obj["efficiency_pct"] | 85;
+
+            if (!isfinite(flow) || !((flow == 0.0f) || (flow >= 0.05f && flow <= 100.0f))) {
+                request->send(400, "application/json", "{\"error\":\"flow_lpm_must_be_0_or_0_05_100\"}");
+                return;
+            }
+            if (efficiency < 10 || efficiency > 100) {
+                request->send(400, "application/json", "{\"error\":\"efficiency_pct_10_100\"}");
+                return;
+            }
+
+            Config cfg;
+            configStorage.load(cfg);
+            cfg.pump_flow_ml_min = static_cast<uint32_t>(lroundf(flow * 1000.0f));
+            cfg.delivery_efficiency_pct = static_cast<uint8_t>(efficiency);
+            configStorage.save(cfg);
+            eventLog.record(EventType::HydraulicsSaved, PumpSource::None,
+                            PumpStopReason::None,
+                            static_cast<int32_t>(cfg.pump_flow_ml_min));
+
+            JsonDocument doc;
+            doc["status"] = "ok";
+            doc["flow_lpm"] = static_cast<float>(cfg.pump_flow_ml_min) / 1000.0f;
+            doc["efficiency_pct"] = cfg.delivery_efficiency_pct;
+            doc["calibrated"] = cfg.pump_flow_ml_min > 0;
+            sendJson(request, doc);
+        }
+    );
+    server.addHandler(hydraulicsHandler);
 
     server.on("/api/schedule", HTTP_GET, [](AsyncWebServerRequest *request) {
         Config cfg;
@@ -143,6 +312,8 @@ void WebServerManager::setupRoutes() {
         }
         configStorage.save(cfg);
         scheduler->updateConfig(cfg.schedule, cfg.schedule_count);
+        eventLog.record(EventType::ScheduleChanged, PumpSource::None,
+                        PumpStopReason::None, cfg.schedule_count);
         request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
 
@@ -189,13 +360,16 @@ void WebServerManager::setupRoutes() {
             for (uint8_t i = 0; i < count; ++i) cfg.schedule[i] = parsed[i];
             configStorage.save(cfg);
             scheduler->updateConfig(cfg.schedule, cfg.schedule_count);
+            eventLog.record(EventType::ScheduleChanged, PumpSource::None,
+                            PumpStopReason::None, count);
             request->send(200, "application/json", "{\"status\":\"ok\"}");
         }
     );
     server.addHandler(scheduleHandler);
 
     server.on("/api/reboot", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        relay->off();
+        eventLog.record(EventType::RebootRequested);
+        relay->off(PumpStopReason::Reboot);
         request->send(200, "application/json", "{\"status\":\"ok\"}");
         delay(350);
         ESP.restart();
@@ -244,8 +418,9 @@ void WebServerManager::setupRoutes() {
             if (pass.length() > 0) cfg.wifi_pass = pass;
             cfg.timezone_offset = tz;
             configStorage.save(cfg);
+            eventLog.record(EventType::ConfigChanged);
 
-            relay->off();
+            relay->off(PumpStopReason::Reboot);
             request->send(200, "application/json", "{\"status\":\"ok\",\"rebooting\":true}");
             delay(350);
             ESP.restart();
@@ -253,8 +428,6 @@ void WebServerManager::setupRoutes() {
     );
     server.addHandler(configHandler);
 
-    // Local OTA transport. Authentication + signed-image verification is a
-    // separate security milestone; do not expose this HTTP service to WAN.
     server.on("/ota/upload", HTTP_POST, [this](AsyncWebServerRequest *request) {
         const bool failed = Update.hasError();
         request->send(failed ? 500 : 200, "text/plain", failed ? "FAIL" : "OK");
@@ -265,7 +438,8 @@ void WebServerManager::setupRoutes() {
     }, [this](AsyncWebServerRequest *request, String filename, size_t index,
               uint8_t *data, size_t len, bool final) {
         if (!index) {
-            relay->off();
+            eventLog.record(EventType::OtaStarted);
+            relay->off(PumpStopReason::Ota);
             otaManager.begin();
             Serial.printf("[OTA] Start: %s\n", filename.c_str());
             if (!Update.begin(UPDATE_SIZE_UNKNOWN)) Update.printError(Serial);
