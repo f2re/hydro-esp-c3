@@ -1,47 +1,32 @@
 # HydroESP-C3 HTTP API
 
-API предназначен для локальной сети. Текущая версия контракта: **v2**.
+API предназначен для локальной сети. Текущая версия контракта: **v3**.
 
-Базовый адрес в STA-режиме:
-
-```text
-http://hydro.local
-```
-
-В provisioning AP:
-
-```text
-http://192.168.4.1
-```
+STA: `http://hydro.local`  
+Provisioning AP: `http://192.168.4.1`
 
 ## Общие правила
 
-- JSON кодируется UTF-8;
+- JSON — UTF-8;
 - изменяющие состояние операции используют `POST`;
-- пароль Wi‑Fi никогда не возвращается API;
-- ошибки валидации возвращают HTTP 400 и JSON с полем `error`;
-- OTA использует multipart upload и не является JSON endpoint.
+- Wi‑Fi password никогда не возвращается API;
+- валидация возвращает HTTP 400 + `{ "error": "..." }`;
+- конфликт режима/занятый насос может возвращать HTTP 409;
+- OTA — multipart upload, не JSON;
+- клиенты должны проверять `api_version`.
 
 ## `GET /ping`
 
-Проверка HTTP-сервера.
-
-Ответ:
-
-```text
-pong
-```
+Ответ: `pong`.
 
 ## `GET /api/status`
 
 Основное оперативное состояние.
 
-Пример:
-
 ```json
 {
-  "api_version": 2,
-  "version": "v1.2.0",
+  "api_version": 3,
+  "version": "v1.3.0",
   "build": "a1b2c3d4",
   "time": "18:42:15",
   "date": "07.08.2026",
@@ -50,25 +35,37 @@ pong
   "relay": false,
   "relay_remaining": 0,
   "relay_progress": -1,
+  "pump_source": "none",
   "ssid": "HomeWiFi",
   "rssi": -58,
   "ip": "192.168.1.50",
   "ap_mode": false,
   "next": "19:00",
-  "schedule_count": 38
+  "schedule_count": 38,
+  "automation_enabled": true,
+  "pump_flow_lpm": 1.742,
+  "delivery_efficiency_pct": 85,
+  "hydraulics_calibrated": true,
+  "event_count": 7
 }
 ```
+
+`pump_source`:
+
+- `none`;
+- `schedule`;
+- `web_manual`;
+- `button_manual`;
+- `calibration`.
 
 `rssi` может отсутствовать в AP-режиме.
 
 ## `GET /api/diagnostics`
 
-Низкоуровневое состояние для UI/поддержки.
-
 ```json
 {
-  "api_version": 2,
-  "version": "v1.2.0",
+  "api_version": 3,
+  "version": "v1.3.0",
   "build": "a1b2c3d4",
   "free_heap": 123456,
   "min_free_heap": 110000,
@@ -76,36 +73,174 @@ pong
   "sketch_size": 890000,
   "free_sketch_space": 650000,
   "reset_reason": 1,
-  "reset_reason_text": "питание включено"
+  "reset_reason_text": "питание включено",
+  "event_log_capacity": 32,
+  "event_log_session_only": true
 }
 ```
 
-## `POST /api/relay/on?duration=N`
+## Автоматика
 
-Запускает насос на ограниченное время.
+### `GET /api/automation`
 
-- `N` — секунды;
-- минимум: 1;
-- максимум: `MAX_WATERING_SECONDS` (сейчас 3600);
-- некорректное значение заменяется безопасным ручным default.
+```json
+{"enabled":true}
+```
 
-Ответ:
+### `POST /api/automation`
+
+```json
+{"enabled":false}
+```
+
+Пауза:
+
+- не удаляет расписание;
+- запрещает новые плановые запуски;
+- если в этот момент работает именно `schedule`-цикл, он останавливается с причиной `automation_paused`;
+- ручные циклы не выключаются скрыто;
+- при возобновлении Scheduler не «догоняет» слот, пропущенный в текущей минуте.
+
+Состояние сохраняется в NVS.
+
+## Ручное управление насосом
+
+### `POST /api/relay/on?duration=N`
+
+Запускает ручной web-цикл.
+
+- минимум 1 с;
+- максимум `MAX_WATERING_SECONDS` (3600 с);
+- неверное значение заменяется безопасным default.
 
 ```json
 {"status":"ok"}
 ```
 
-## `POST /api/relay/off`
+### `POST /api/relay/off`
 
-Немедленно выключает насос.
+Немедленная ручная остановка.
 
 ```json
 {"status":"ok"}
 ```
 
-## `GET /api/schedule`
+## Калибровка гидравлики
 
-Возвращает массив суточных циклов:
+### `POST /api/calibration/start?duration=N`
+
+Запускает отдельный calibration-цикл.
+
+Условия:
+
+- таймерная автоматика должна быть на паузе;
+- насос должен быть выключен;
+- длительность 5–120 с.
+
+Успех:
+
+```json
+{"status":"ok"}
+```
+
+Конфликты:
+
+```json
+{"error":"automation_must_be_paused"}
+{"error":"pump_busy"}
+```
+
+Некорректная длительность:
+
+```json
+{"error":"calibration_duration_5_120"}
+```
+
+### `GET /api/hydraulics`
+
+```json
+{
+  "flow_lpm":1.742,
+  "efficiency_pct":85,
+  "calibrated":true
+}
+```
+
+### `POST /api/hydraulics`
+
+```json
+{
+  "flow_lpm":1.742,
+  "efficiency_pct":85
+}
+```
+
+Ограничения:
+
+- `flow_lpm`: `0` для очистки либо 0.05…100 л/мин;
+- `efficiency_pct`: 10…100.
+
+Расход хранится в NVS как целое число мл/мин, чтобы не зависеть от бинарного представления float.
+
+Калибровочный мастер web UI вычисляет расход из измерения:
+
+```text
+Q [л/мин] = measured_ml × 60 / duration_sec / 1000
+```
+
+## Журнал текущей сессии
+
+### `GET /api/events`
+
+```json
+{
+  "session_only": true,
+  "events": [
+    {
+      "sequence": 7,
+      "uptime": 412,
+      "timestamp": "2026-08-07 18:42:15",
+      "type": "pump_stop",
+      "source": "calibration",
+      "reason": "timeout",
+      "value": 0
+    }
+  ]
+}
+```
+
+Типы событий:
+
+- `boot`;
+- `pump_start`;
+- `pump_stop`;
+- `automation_enabled`;
+- `automation_paused`;
+- `schedule_changed`;
+- `hydraulics_saved`;
+- `config_changed`;
+- `ota_started`;
+- `reboot_requested`.
+
+Причины остановки:
+
+- `manual`;
+- `timeout`;
+- `reboot`;
+- `ota`;
+- `automation_paused`.
+
+`timestamp` отсутствует, если на момент события NTP ещё не был синхронизирован; `uptime` присутствует всегда.
+
+Журнал RAM-only и содержит максимум 32 записи. Он не является долговременным audit log.
+
+### `POST /api/events/clear`
+
+Очищает только RAM-журнал текущей сессии.
+
+## Расписание
+
+### `GET /api/schedule`
 
 ```json
 [
@@ -118,23 +253,17 @@ pong
 
 - `h`: 0–23;
 - `m`: 0–59;
-- `d`: длительность в секундах.
+- `d`: 1–3600 секунд.
 
-## `POST /api/schedule`
+### `POST /api/schedule`
 
 Полностью заменяет расписание.
 
-Тело — массив слотов. Ограничения:
+Ограничения:
 
-- не более 48;
+- не более 48 слотов;
 - уникальное `HH:MM`;
 - длительность 1–3600 секунд.
-
-Успех:
-
-```json
-{"status":"ok"}
-```
 
 Возможные ошибки:
 
@@ -145,13 +274,13 @@ pong
 {"error":"duplicate_time"}
 ```
 
-## `POST /api/schedule/reset`
+### `POST /api/schedule/reset`
 
-Восстанавливает заводской fallback-график из `src/config.h` и сразу записывает его в NVS.
+Восстанавливает fallback-график из `src/config.h` и записывает его в NVS.
 
-## `GET /api/config`
+## Сеть и время
 
-Возвращает безопасную часть конфигурации:
+### `GET /api/config`
 
 ```json
 {
@@ -161,9 +290,9 @@ pong
 }
 ```
 
-`has_pass` сообщает только наличие сохранённого пароля. Сам пароль не выдаётся.
+Пароль не выдаётся.
 
-## `POST /api/config`
+### `POST /api/config`
 
 ```json
 {
@@ -173,28 +302,26 @@ pong
 }
 ```
 
-- пустой `pass` сохраняет старый пароль;
-- SSID: 1–32 символа;
-- пароль: до 63 символов;
-- UTC offset: целое −12…+14.
+- пустой `pass` оставляет старый пароль;
+- SSID 1–32 символа;
+- password до 63 символов;
+- UTC offset −12…+14.
 
-После успешной записи насос останавливается, контроллер отвечает и перезагружается.
+После записи насос останавливается и устройство перезагружается.
 
 ## `POST /api/reboot`
 
-Останавливает насос и перезагружает контроллер.
+Фиксирует событие, останавливает насос и перезагружает контроллер.
 
 ## `POST /ota/upload`
 
-Multipart/form-data upload application `.bin`.
+Multipart/form-data, поле `file`.
 
-Поле файла:
+Перед записью:
 
-```text
-file
-```
-
-Перед записью насос останавливается.
+1. фиксируется `ota_started`;
+2. насос останавливается с причиной `ota`;
+3. запускается Update API.
 
 Успех:
 
@@ -203,29 +330,31 @@ HTTP 200
 OK
 ```
 
-Ошибка Update API:
+Ошибка:
 
 ```text
 HTTP 500
 FAIL
 ```
 
-После успешной записи контроллер перезагружается.
-
 ## `GET /manifest.webmanifest`
 
-Минимальный manifest для standalone/PWA-представления встроенного UI.
+Manifest standalone/PWA-представления UI.
 
-## Совместимость клиентов
+## Совместимость
 
-Клиенты должны проверять `api_version`. Новые поля могут добавляться без изменения версии, если существующая семантика не меняется. Breaking changes требуют увеличения `HYDRO_API_VERSION` и обновления этой страницы.
+API v3 добавляет операции, гидравлику и журнал сессии. Новые необязательные поля могут добавляться без bump версии, если существующая семантика не меняется. Breaking changes требуют увеличения `HYDRO_API_VERSION`.
 
 ## Примеры
 
 ```bash
 curl http://hydro.local/api/status
-curl -X POST 'http://hydro.local/api/relay/on?duration=30'
-curl -X POST http://hydro.local/api/relay/off
+curl http://hydro.local/api/events
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"enabled":false}' http://hydro.local/api/automation
+curl -X POST 'http://hydro.local/api/calibration/start?duration=30'
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"flow_lpm":1.742,"efficiency_pct":85}' http://hydro.local/api/hydraulics
 ```
 
-Для автоматизации предпочтительнее `tools/hydroctl.py`, поскольку он уже содержит проверку ошибок, backup и OTA-поток.
+Для обычной эксплуатации предпочтительнее `tools/hydroctl.py`.
