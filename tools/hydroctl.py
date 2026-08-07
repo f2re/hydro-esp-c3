@@ -223,7 +223,13 @@ def command_doctor(args) -> None:
         print(f"  Time sync:   {'yes' if status.get('time_synced') else 'no'}")
         print(f"  Automation:  {'enabled' if status.get('automation_enabled') else 'paused'}")
         flow = float(status.get("pump_flow_lpm") or 0)
-        print(f"  Hydraulics:  {flow:.3f} L/min" if flow else "  Hydraulics:  not calibrated")
+        if flow:
+            samples = int(status.get("calibration_sample_count") or 0)
+            cv = float(status.get("calibration_cv_pct") or 0)
+            quality = f", {samples} sample(s), CV {cv:.1f}%" if samples else ""
+            print(f"  Hydraulics:  {flow:.3f} L/min{quality}")
+        else:
+            print("  Hydraulics:  not calibrated")
         print(f"  Pump:        {'ON / ' + status.get('pump_source', '?') if status.get('relay') else 'off'}")
     except Exception as exc:
         print(f"  Controller:  not reachable at {host} ({exc})")
@@ -353,19 +359,21 @@ def command_restore(args) -> None:
             return
 
     host = base_url(args.host)
-    # Restoration is deliberately fail-safe: pause first, then mutate schedule
-    # and calibration. The previous enabled state is restored only with an
-    # explicit --resume-automation flag.
     post_json(host + "/api/automation", {"enabled": False})
     post_json(host + "/api/schedule", slots)
 
     hydraulics = payload.get("hydraulics") if fmt == "hydroesp-backup-v2" else None
     if isinstance(hydraulics, dict):
-        post_json(host + "/api/hydraulics", {
+        restored = {
             "flow_lpm": float(hydraulics.get("flow_lpm") or 0),
             "efficiency_pct": int(hydraulics.get("efficiency_pct") or 85),
-        })
-        say("hydraulic calibration restored")
+        }
+        if "sample_count" in hydraulics:
+            restored["sample_count"] = int(hydraulics.get("sample_count") or 0)
+            restored["cv_pct"] = float(hydraulics.get("cv_pct") or 0)
+            restored["calibration_epoch"] = int(hydraulics.get("calibration_epoch") or 0)
+        post_json(host + "/api/hydraulics", restored)
+        say("hydraulic calibration and repeatability metadata restored")
 
     if args.resume_automation:
         post_json(host + "/api/automation", {"enabled": True})
