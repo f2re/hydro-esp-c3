@@ -1,8 +1,13 @@
 # PlatformIO
-.pio
-.pioenvs
-.piolibdeps
+.pio/
+.pioenvs/
+.piolibdeps/
 lib/README
+
+# Project-local Python toolchain
+.venv/
+__pycache__/
+*.py[cod]
 
 # VS Code
 .vscode/*
@@ -11,9 +16,13 @@ lib/README
 !.vscode/settings.json
 !.vscode/tasks.json
 
-# Environment variables
+# Local configuration / secrets
 .env
 *.local
+
+# Maintenance outputs
+dist/
+hydroesp-backup*.json
 
 # OS generated files
 .DS_Store

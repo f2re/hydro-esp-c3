@@ -1,43 +1,67 @@
-// ntp_manager.cpp
 #include "ntp_manager.h"
-#include "config.h"
 #include <Arduino.h>
+#include <time.h>
 
-void NTPManager::begin() {
+void NTPManager::begin(int offset_hours) {
+    setTimeOffset(offset_hours);
     _client = new NTPClient(_udp, "pool.ntp.org",
-        (long)TIMEZONE_OFFSET * 3600, NTP_SYNC_INTERVAL);
+                            static_cast<long>(_offsetHours) * 3600L,
+                            NTP_SYNC_INTERVAL);
     _client->begin();
     _synced = _client->update();
-    if (_synced)
-        Serial.printf("[NTP] Synced: %s\n", _client->getFormattedTime().c_str());
-    else
-        Serial.println("[NTP] Sync failed, will retry...");
-}
-void NTPManager::update() {
-    if (!_client) return;
-    if (_client->update() && !_synced) {
-        _synced = true;
-        Serial.printf("[NTP] Synced: %s\n", _client->getFormattedTime().c_str());
+    if (_synced) {
+        Serial.printf("[NTP] Synced: %s UTC%+d\n",
+                      _client->getFormattedTime().c_str(), _offsetHours);
+    } else {
+        Serial.println("[NTP] Sync failed, will retry");
     }
 }
-bool NTPManager::isSynced() const { return _synced; }
-uint8_t NTPManager::getHour()   const { return _client ? _client->getHours()   : 0; }
-uint8_t NTPManager::getMinute() const { return _client ? _client->getMinutes() : 0; }
+
+void NTPManager::update() {
+    if (!_client) return;
+    if (_client->update()) {
+        if (!_synced) {
+            Serial.printf("[NTP] Synced: %s UTC%+d\n",
+                          _client->getFormattedTime().c_str(), _offsetHours);
+        }
+        _synced = true;
+    }
+}
+
+bool NTPManager::isSynced() const {
+    return _synced;
+}
+
+uint8_t NTPManager::getHour() const {
+    return _client ? _client->getHours() : 0;
+}
+
+uint8_t NTPManager::getMinute() const {
+    return _client ? _client->getMinutes() : 0;
+}
+
 String NTPManager::getTimeString() const {
-    return _synced ? _client->getFormattedTime() : "--:--:--";
+    return (_synced && _client) ? _client->getFormattedTime() : "--:--:--";
 }
 
 String NTPManager::getDateString() const {
-    if (!_synced) return "--.--.----";
-    time_t rawtime = _client->getEpochTime();
-    struct tm * ti;
-    ti = localtime(&rawtime);
+    if (!_synced || !_client) return "--.--.----";
+
+    // NTPClient::getEpochTime() already includes the configured offset. Use
+    // UTC calendar conversion so host/process TZ cannot shift the date again.
+    const time_t localEpoch = static_cast<time_t>(_client->getEpochTime());
+    struct tm value {};
+    gmtime_r(&localEpoch, &value);
+
     char buf[12];
-    snprintf(buf, 12, "%02d.%02d.%04d", ti->tm_mday, ti->tm_mon + 1, ti->tm_year + 1900);
+    snprintf(buf, sizeof(buf), "%02d.%02d.%04d",
+             value.tm_mday, value.tm_mon + 1, value.tm_year + 1900);
     return String(buf);
 }
 
 void NTPManager::setTimeOffset(int offset_hours) {
-    if (_client) _client->setTimeOffset(offset_hours * 3600);
+    if (offset_hours < -12) offset_hours = -12;
+    if (offset_hours > 14) offset_hours = 14;
+    _offsetHours = offset_hours;
+    if (_client) _client->setTimeOffset(static_cast<long>(_offsetHours) * 3600L);
 }
-

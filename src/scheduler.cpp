@@ -1,59 +1,73 @@
 #include "scheduler.h"
 
 void Scheduler::begin(RelayController* relay, NTPManager* ntp) {
-    _relay = relay; _ntp = ntp;
+    _relay = relay;
+    _ntp = ntp;
 }
 
 void Scheduler::updateConfig(const WateringSlot* schedule, uint8_t count) {
-    _count = count > 48 ? 48 : count;
-    for (int i = 0; i < _count; i++) {
+    _count = count > MAX_SCHEDULE_SLOTS ? MAX_SCHEDULE_SLOTS : count;
+    for (uint8_t i = 0; i < _count; ++i) {
         _schedule[i] = schedule[i];
     }
 }
 
 void Scheduler::update() {
     if (!_relay || !_ntp || !_ntp->isSynced()) return;
-    
-    // Если реле уже включено (например, вручную), не пытаемся запустить новый слот
+
+    const uint8_t minute = _ntp->getMinute();
+    if (minute == _lastCheckedMinute) return;
+
+    // Consume the minute even when the pump is already running. This prevents a
+    // scheduled cycle from firing late in the same minute after a manual cycle.
+    _lastCheckedMinute = minute;
     if (_relay->isOn()) return;
 
-    uint8_t m = _ntp->getMinute();
-    if (m == _lastCheckedMinute) return;
-    _lastCheckedMinute = m;
-
-    uint8_t h = _ntp->getHour();
-
-    for (uint8_t i = 0; i < _count; i++) {
-        if (h == _schedule[i].hour && m == _schedule[i].minute) {
-            Serial.printf("[Scheduler] Slot %d: %02d:%02d → %d sec\n",
-                i, h, m, _schedule[i].duration_sec);
+    const uint8_t hour = _ntp->getHour();
+    for (uint8_t i = 0; i < _count; ++i) {
+        if (hour == _schedule[i].hour && minute == _schedule[i].minute) {
+            Serial.printf("[Scheduler] Slot %u: %02u:%02u -> %u sec\n",
+                          i, hour, minute, _schedule[i].duration_sec);
             _relay->runFor(_schedule[i].duration_sec);
-            break; // Запускаем только один слот в минуту
+            break;
         }
     }
 }
 
-String Scheduler::getNextWateringString() {
-    if (!_ntp->isSynced()) return "--:--";
-    uint8_t h = _ntp->getHour();
-    uint8_t m = _ntp->getMinute();
-    
-    int minDiff = 1440;
-    int nextIdx = -1;
-    
-    for (int i = 0; i < _count; i++) {
-        int diff = (_schedule[i].hour * 60 + _schedule[i].minute) - (h * 60 + m);
+bool Scheduler::getSlot(uint8_t index, WateringSlot& slot) const {
+    if (index >= _count) return false;
+    slot = _schedule[index];
+    return true;
+}
+
+bool Scheduler::getNextSlot(WateringSlot& slot, int& minutesUntil) const {
+    if (!_ntp || !_ntp->isSynced() || _count == 0) return false;
+
+    const int current = _ntp->getHour() * 60 + _ntp->getMinute();
+    int best = 1441;
+    int nextIndex = -1;
+
+    for (uint8_t i = 0; i < _count; ++i) {
+        int diff = (_schedule[i].hour * 60 + _schedule[i].minute) - current;
         if (diff <= 0) diff += 1440;
-        if (diff < minDiff) {
-            minDiff = diff;
-            nextIdx = i;
+        if (diff < best) {
+            best = diff;
+            nextIndex = i;
         }
     }
-    
-    if (nextIdx != -1) {
-        char buf[6];
-        snprintf(buf, 6, "%02d:%02d", _schedule[nextIdx].hour, _schedule[nextIdx].minute);
-        return String(buf);
-    }
-    return "--:--";
+
+    if (nextIndex < 0) return false;
+    slot = _schedule[nextIndex];
+    minutesUntil = best;
+    return true;
+}
+
+String Scheduler::getNextWateringString() const {
+    WateringSlot slot {};
+    int minutesUntil = 0;
+    if (!getNextSlot(slot, minutesUntil)) return "--:--";
+
+    char buf[6];
+    snprintf(buf, sizeof(buf), "%02u:%02u", slot.hour, slot.minute);
+    return String(buf);
 }

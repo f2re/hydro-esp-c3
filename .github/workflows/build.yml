@@ -1,0 +1,47 @@
+name: Build and verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade "platformio>=6.1,<7"
+
+      - name: Check maintenance tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/hydroctl.py tools/check_web_ui.py scripts/build_flags.py
+          python tools/hydroctl.py --help >/dev/null
+          sh -n install.sh update.sh
+
+      - name: Check embedded web UI
+        run: python tools/check_web_ui.py
+
+      - name: Build ESP32-C3 firmware
+        run: pio run
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydro-esp-c3-${{ github.sha }}
+          path: .pio/build/esp32c3_supermini/firmware.bin
+          if-no-files-found: error
+          retention-days: 14
