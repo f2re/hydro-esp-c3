@@ -224,9 +224,10 @@ def command_doctor(args) -> None:
         print(f"  Automation:  {'enabled' if status.get('automation_enabled') else 'paused'}")
         flow = float(status.get("pump_flow_lpm") or 0)
         if flow:
+            protocol = int(status.get("calibration_protocol_version") or 0)
             samples = int(status.get("calibration_sample_count") or 0)
             cv = float(status.get("calibration_cv_pct") or 0)
-            quality = f", {samples} sample(s), CV {cv:.1f}%" if samples else ""
+            quality = f", protocol v{protocol or '?'}, {samples} sample(s), CV {cv:.1f}%" if samples else ""
             print(f"  Hydraulics:  {flow:.3f} L/min{quality}")
         else:
             print("  Hydraulics:  not calibrated")
@@ -369,11 +370,12 @@ def command_restore(args) -> None:
             "efficiency_pct": int(hydraulics.get("efficiency_pct") or 85),
         }
         if "sample_count" in hydraulics:
+            restored["protocol_version"] = int(hydraulics.get("protocol_version") or 0)
             restored["sample_count"] = int(hydraulics.get("sample_count") or 0)
             restored["cv_pct"] = float(hydraulics.get("cv_pct") or 0)
             restored["calibration_epoch"] = int(hydraulics.get("calibration_epoch") or 0)
         post_json(host + "/api/hydraulics", restored)
-        say("hydraulic calibration and repeatability metadata restored")
+        say("hydraulic calibration, protocol and repeatability metadata restored")
 
     if args.resume_automation:
         post_json(host + "/api/automation", {"enabled": True})
