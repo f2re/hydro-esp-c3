@@ -17,7 +17,10 @@
 
 // Temporary compatibility switch for installations where pump startup causes
 // a supply dip. Keep enabled only until power wiring/decoupling is corrected.
+// Can be overridden with -DHYDRO_DISABLE_BROWNOUT_WORKAROUND=0.
+#ifndef HYDRO_DISABLE_BROWNOUT_WORKAROUND
 #define HYDRO_DISABLE_BROWNOUT_WORKAROUND 1
+#endif
 
 // ── Product limits ────────────────────────────────────────────────────────
 #define MAX_SCHEDULE_SLOTS        48
