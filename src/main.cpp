@@ -121,8 +121,7 @@ void setup() {
     }
 
     oled.drawBoot(3, "NTP...");
-    ntpMgr.begin();
-    ntpMgr.setTimeOffset(appConfig.timezone_offset);
+    ntpMgr.begin(appConfig.timezone_offset);
 
     if (wifiOk) {
         serial.printBootStep("🕐", "NTP", ntpMgr.isSynced(), ntpMgr.getTimeString());
@@ -137,7 +136,7 @@ void setup() {
     }
 
     oled.drawBoot(4, "Ready!");
-    serial.printSchedule();
+    serial.printSchedule(&scheduler);
     delay(600);
 }
 
@@ -162,12 +161,12 @@ void loop() {
     const uint32_t now = millis();
     if (static_cast<uint32_t>(now - lastOled) >= OLED_INTERVAL_MS) {
         lastOled = now;
-        oled.update(&ntpMgr, &relay, &wifiMgr);
+        oled.update(&ntpMgr, &relay, &wifiMgr, &scheduler);
     }
 
     if (static_cast<uint32_t>(now - lastSerial) >= SERIAL_INTERVAL_MS) {
         lastSerial = now;
-        serial.draw(&ntpMgr, &relay, &wifiMgr);
+        serial.draw(&ntpMgr, &relay, &wifiMgr, &scheduler);
     }
 
     delay(10);
