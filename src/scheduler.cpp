@@ -19,8 +19,7 @@ void Scheduler::update() {
     if (minute == _lastCheckedMinute) return;
 
     // Consume the minute even when the pump is already running. This prevents a
-    // scheduled cycle from firing late in the same minute after a manual cycle
-    // ends, which would otherwise produce an unexpected double watering.
+    // scheduled cycle from firing late in the same minute after a manual cycle.
     _lastCheckedMinute = minute;
     if (_relay->isOn()) return;
 
@@ -35,28 +34,40 @@ void Scheduler::update() {
     }
 }
 
-String Scheduler::getNextWateringString() {
-    if (!_ntp || !_ntp->isSynced() || _count == 0) return "--:--";
+bool Scheduler::getSlot(uint8_t index, WateringSlot& slot) const {
+    if (index >= _count) return false;
+    slot = _schedule[index];
+    return true;
+}
 
-    const uint8_t hour = _ntp->getHour();
-    const uint8_t minute = _ntp->getMinute();
-    int minDiff = 1440;
-    int nextIdx = -1;
+bool Scheduler::getNextSlot(WateringSlot& slot, int& minutesUntil) const {
+    if (!_ntp || !_ntp->isSynced() || _count == 0) return false;
+
+    const int current = _ntp->getHour() * 60 + _ntp->getMinute();
+    int best = 1441;
+    int nextIndex = -1;
 
     for (uint8_t i = 0; i < _count; ++i) {
-        int diff = (_schedule[i].hour * 60 + _schedule[i].minute) -
-                   (hour * 60 + minute);
+        int diff = (_schedule[i].hour * 60 + _schedule[i].minute) - current;
         if (diff <= 0) diff += 1440;
-        if (diff < minDiff) {
-            minDiff = diff;
-            nextIdx = i;
+        if (diff < best) {
+            best = diff;
+            nextIndex = i;
         }
     }
 
-    if (nextIdx < 0) return "--:--";
+    if (nextIndex < 0) return false;
+    slot = _schedule[nextIndex];
+    minutesUntil = best;
+    return true;
+}
+
+String Scheduler::getNextWateringString() const {
+    WateringSlot slot {};
+    int minutesUntil = 0;
+    if (!getNextSlot(slot, minutesUntil)) return "--:--";
 
     char buf[6];
-    snprintf(buf, sizeof(buf), "%02u:%02u",
-             _schedule[nextIdx].hour, _schedule[nextIdx].minute);
+    snprintf(buf, sizeof(buf), "%02u:%02u", slot.hour, slot.minute);
     return String(buf);
 }
