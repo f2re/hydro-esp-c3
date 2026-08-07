@@ -19,7 +19,6 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
-import urllib.parse
 import urllib.request
 import uuid
 
@@ -162,6 +161,43 @@ def command_status(args) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2))
 
 
+def command_events(args) -> None:
+    host = base_url(args.host)
+    data = get_json(host + "/api/events")
+    events = data.get("events", []) if isinstance(data, dict) else []
+    if not events:
+        say("no events in current session")
+        return
+    for event in events:
+        stamp = event.get("timestamp") or f"+{event.get('uptime', 0)}s"
+        kind = event.get("type", "unknown")
+        source = event.get("source", "none")
+        reason = event.get("reason", "none")
+        value = event.get("value", 0)
+        extra = []
+        if source != "none":
+            extra.append(source)
+        if reason != "none":
+            extra.append(reason)
+        if value:
+            extra.append(str(value))
+        print(f"{stamp:19}  {kind:20} {' · '.join(extra)}")
+
+
+def set_automation(args, enabled: bool) -> None:
+    host = base_url(args.host)
+    result = post_json(host + "/api/automation", {"enabled": enabled})
+    say("automation resumed" if result.get("enabled") else "automation paused")
+
+
+def command_pause(args) -> None:
+    set_automation(args, False)
+
+
+def command_resume(args) -> None:
+    set_automation(args, True)
+
+
 def command_doctor(args) -> None:
     print("HydroESP-C3 doctor")
     print(f"  Python:      {sys.version.split()[0]}")
@@ -183,7 +219,12 @@ def command_doctor(args) -> None:
         status = get_json(host + "/api/status", timeout=2.5)
         print(f"  Controller:  online at {host}")
         print(f"  Firmware:    {status.get('version', '?')} ({status.get('build', '?')})")
+        print(f"  API:         v{status.get('api_version', '?')}")
         print(f"  Time sync:   {'yes' if status.get('time_synced') else 'no'}")
+        print(f"  Automation:  {'enabled' if status.get('automation_enabled') else 'paused'}")
+        flow = float(status.get("pump_flow_lpm") or 0)
+        print(f"  Hydraulics:  {flow:.3f} L/min" if flow else "  Hydraulics:  not calibrated")
+        print(f"  Pump:        {'ON / ' + status.get('pump_source', '?') if status.get('relay') else 'off'}")
     except Exception as exc:
         print(f"  Controller:  not reachable at {host} ({exc})")
 
@@ -278,8 +319,9 @@ def command_backup(args) -> None:
     status = get_json(host + "/api/status")
     schedule = get_json(host + "/api/schedule")
     config = get_json(host + "/api/config")
+    hydraulics = get_json(host + "/api/hydraulics")
     payload = {
-        "format": "hydroesp-backup-v1",
+        "format": "hydroesp-backup-v2",
         "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "device": {
             "version": status.get("version"),
@@ -287,6 +329,8 @@ def command_backup(args) -> None:
             "ssid": config.get("ssid"),
             "tz": config.get("tz"),
         },
+        "automation_enabled": bool(status.get("automation_enabled")),
+        "hydraulics": hydraulics,
         "schedule": schedule,
     }
     target = Path(args.output).expanduser().resolve()
@@ -297,15 +341,37 @@ def command_backup(args) -> None:
 def command_restore(args) -> None:
     source = Path(args.file).expanduser().resolve()
     payload = json.loads(source.read_text(encoding="utf-8"))
-    if payload.get("format") != "hydroesp-backup-v1" or not isinstance(payload.get("schedule"), list):
+    fmt = payload.get("format")
+    if fmt not in {"hydroesp-backup-v1", "hydroesp-backup-v2"} or not isinstance(payload.get("schedule"), list):
         raise HydroError("unsupported or invalid backup format")
+
+    slots = payload["schedule"]
     if not args.yes:
-        answer = input(f"Replace device schedule with {len(payload['schedule'])} slots? [y/N] ").strip().lower()
+        answer = input(f"Pause automation and replace device schedule with {len(slots)} slots? [y/N] ").strip().lower()
         if answer not in {"y", "yes"}:
             say("restore cancelled")
             return
+
     host = base_url(args.host)
-    post_json(host + "/api/schedule", payload["schedule"])
+    # Restoration is deliberately fail-safe: pause first, then mutate schedule
+    # and calibration. The previous enabled state is restored only with an
+    # explicit --resume-automation flag.
+    post_json(host + "/api/automation", {"enabled": False})
+    post_json(host + "/api/schedule", slots)
+
+    hydraulics = payload.get("hydraulics") if fmt == "hydroesp-backup-v2" else None
+    if isinstance(hydraulics, dict):
+        post_json(host + "/api/hydraulics", {
+            "flow_lpm": float(hydraulics.get("flow_lpm") or 0),
+            "efficiency_pct": int(hydraulics.get("efficiency_pct") or 85),
+        })
+        say("hydraulic calibration restored")
+
+    if args.resume_automation:
+        post_json(host + "/api/automation", {"enabled": True})
+        say("automation resumed by explicit request")
+    else:
+        say("automation left paused for verification")
     say("schedule restored")
 
 
@@ -335,9 +401,12 @@ def parser() -> argparse.ArgumentParser:
     for name, help_text, func in [
         ("status", "show controller status", command_status),
         ("doctor", "check toolchain, serial and controller", command_doctor),
+        ("events", "show current-session operation events", command_events),
+        ("pause", "pause timer automation", command_pause),
+        ("resume", "resume timer automation", command_resume),
         ("backup", "export safe device backup", command_backup),
         ("update", "OTA update from a file or latest GitHub release", command_update),
-        ("restore", "restore schedule from backup", command_restore),
+        ("restore", "restore schedule and calibration from backup", command_restore),
     ]:
         s = sub.add_parser(name, help=help_text)
         s.add_argument("--host", default=DEFAULT_HOST, help=f"controller URL (default: {DEFAULT_HOST})")
@@ -348,6 +417,8 @@ def parser() -> argparse.ArgumentParser:
         elif name == "restore":
             s.add_argument("file")
             s.add_argument("--yes", action="store_true")
+            s.add_argument("--resume-automation", action="store_true",
+                           help="resume timer automation after restore; default is to leave it paused")
         s.set_defaults(func=func)
 
     return p
