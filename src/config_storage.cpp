@@ -26,6 +26,16 @@ void ConfigStorage::load(Config &config) {
         config.timezone_offset = TIMEZONE_OFFSET;
     }
 
+    config.automation_enabled = prefs.getBool("auto", true);
+    config.pump_flow_ml_min = prefs.getUInt("flow_ml", 0);
+    if (config.pump_flow_ml_min > 100000UL) {
+        config.pump_flow_ml_min = 0;
+    }
+    config.delivery_efficiency_pct = prefs.getUChar("eff_pct", 85);
+    if (config.delivery_efficiency_pct < 10 || config.delivery_efficiency_pct > 100) {
+        config.delivery_efficiency_pct = 85;
+    }
+
     uint8_t count = prefs.getUChar("sched_cnt", SCHEDULE_COUNT);
     if (count > MAX_SCHEDULE_SLOTS) {
         loadFactorySchedule(config);
@@ -61,6 +71,9 @@ void ConfigStorage::save(const Config &config) {
     prefs.putString("ssid", config.wifi_ssid);
     prefs.putString("pass", config.wifi_pass);
     prefs.putInt("tz", config.timezone_offset);
+    prefs.putBool("auto", config.automation_enabled);
+    prefs.putUInt("flow_ml", config.pump_flow_ml_min);
+    prefs.putUChar("eff_pct", config.delivery_efficiency_pct);
     prefs.putUChar("sched_cnt", count);
 
     if (count == 0) {
