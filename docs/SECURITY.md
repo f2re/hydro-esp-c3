@@ -4,39 +4,59 @@
 
 Текущая версия рассчитана на **доверенную локальную сеть** и физически контролируемую установку. HTTP API не должен публиковаться в интернет и не должен пробрасываться через роутер/NAT.
 
-## Что уже защищено
+## Что уже защищено программно
 
-- пароль Wi‑Fi не возвращается через `GET /api/config`;
-- резервная копия не содержит пароль Wi‑Fi;
-- изменяющие состояние действия используют `POST`;
-- API валидирует диапазоны расписания и длительность работы насоса;
-- любой программный запуск ограничен максимальной длительностью;
-- reboot и OTA выключают насос;
-- web UI требует удержания для запуска насоса;
-- физическая кнопка также требует удержания для запуска;
-- версия/build SHA доступны для диагностики происхождения прошивки.
+- Wi‑Fi password не возвращается через `GET /api/config` и не попадает в backup;
+- state-changing операции используют `POST`;
+- API валидирует schedule/config/hydraulics;
+- любой pump start имеет maximum runtime;
+- web и physical BOOT требуют hold-to-start;
+- stop выполняется одним действием;
+- reboot и OTA сначала выключают pump;
+- timer automation имеет отдельную persisted pause, не требующую удаления расписания;
+- calibration endpoint работает только при paused automation и idle pump;
+- calibration duration серверно ограничен 5–120 s;
+- restore по умолчанию оставляет automation paused;
+- pump start получает явный source, stop — reason;
+- текущая сессия имеет RAM-only operation journal;
+- version/build SHA/API version доступны для диагностики происхождения firmware.
+
+Эти механизмы уменьшают риск операторской ошибки, но **не заменяют аппаратные interlocks**.
 
 ## Что пока НЕ защищено
 
-### HTTP без TLS
+### HTTP без TLS / web-auth
 
-Устройство использует локальный HTTP. Трафик в той же сети может быть наблюдаем или модифицирован участником с соответствующим доступом.
+Устройство использует локальный HTTP. Узел с доступом к этой LAN может наблюдать/модифицировать трафик и вызывать API управления. До появления auth устройство нельзя публиковать в недоверенную сеть.
 
-### Нет web-auth
+### OTA без device-side подписи
 
-Локальный пользователь, имеющий сетевой доступ к контроллеру, может вызвать API управления насосом, изменить расписание или инициировать reboot.
-
-### OTA без проверки подписи пользовательского образа
-
-`/ota/upload` принимает application binary через локальный HTTP. Проверка SHA-256 в `hydroctl` защищает загрузку опубликованного release-файла от случайного повреждения/несоответствия checksum, но **не заменяет криптографическую аутентификацию прошивки самим устройством**.
+`hydroctl update` проверяет SHA-256 release asset на стороне клиента, но ESP пока не проверяет криптографическую подпись пользовательского application image. Это контроль целостности updater-а, а не Secure Boot/signed OTA.
 
 ### Provisioning AP открыт
 
-`HydroESP-Setup` сейчас запускается без пароля для максимально простого первого запуска. Это допустимо только при физически контролируемом commissioning.
+`HydroESP-Setup` запускается без password для простого commissioning. Такой режим допустим только под физическим контролем.
+
+### Нет hardware dry-run / flow interlock
+
+Сохранённый `pump_flow_lpm` — результат ручной калибровки. Он **не подтверждает**, что вода реально течёт в каждом следующем цикле.
+
+Пока нет:
+
+- датчика минимального уровня;
+- realtime flow/current confirmation;
+- аварии `pump command ON, flow=0`;
+- аппаратного fail-safe.
 
 ### Brown-out workaround
 
-В текущем hardware profile сохранено отключение brown-out detector для совместимости с существующей установкой. Это снижает защиту MCU от плохого питания и должно быть устранено после исправления силовой части.
+Для совместимости с существующей установкой может быть включён `HYDRO_DISABLE_BROWNOUT_WORKAROUND`. Это временная мера. После исправления силового питания штатную brown-out protection нужно вернуть.
+
+### Журнал не является persistent audit log
+
+Текущий EventLog хранит до 32 событий только в RAM и очищается при reboot. Это сделано намеренно, чтобы десятки pump events в сутки не писались в NVS.
+
+Для security/audit задачи нужен отдельный persistent ring log с контролем ресурса flash/FRAM и политикой retention.
 
 ## Рекомендованная сеть
 
@@ -46,40 +66,54 @@
 - не использовать public/guest Wi‑Fi;
 - отключить UPnP-пробросы для устройства;
 - по возможности выделить IoT VLAN;
-- разрешить доступ к контроллеру только доверенным клиентам;
-- разрешить исходящий NTP/DNS, если используется расписание без RTC.
+- разрешить доступ только доверенным clients;
+- разрешить исходящий DNS/NTP, если расписание работает без RTC.
+
+## Безопасный maintenance workflow
+
+Перед гидравлическими работами или калибровкой:
+
+```bash
+python3 tools/hydroctl.py pause
+python3 tools/hydroctl.py status
+```
+
+После работы:
+
+1. проверить schedule и plumbing;
+2. при необходимости выполнить calibration;
+3. проверить `events`;
+4. только затем:
+
+```bash
+python3 tools/hydroctl.py resume
+```
+
+Restore также оставляет automation paused без явного `--resume-automation`.
 
 ## План hardening
 
 Приоритет P0/P1:
 
-1. пароль/одноразовый commissioning token для provisioning AP;
-2. session/auth для опасных web/API операций;
-3. CSRF-защита после появления auth;
-4. signed firmware / Secure Boot-compatible release process;
-5. защита OTA от downgrade при необходимости;
-6. health-check новой прошивки и подтверждённый rollback;
-7. восстановление штатного brown-out detector;
-8. датчик минимального уровня и фактического потока как физические interlock;
-9. rate limit для управляющих endpoint;
-10. журнал опасных действий и причин reboot.
+1. low-level sensor + аппаратный запрет dry-run;
+2. realtime flow/current confirmation;
+3. авария `command ON / no flow`;
+4. возврат brown-out detector после исправления питания;
+5. защищённый provisioning credential;
+6. session/web-auth для опасных операций;
+7. CSRF policy после auth;
+8. signed firmware / Secure Boot-compatible release process;
+9. downgrade policy;
+10. post-boot health confirmation + automatic rollback;
+11. persistent audit/event log с ограниченным wear;
+12. rate limiting управляющих endpoint.
 
 ## Release integrity
 
-GitHub Release workflow формирует `.sha256`. `hydroctl update` проверяет checksum перед OTA, когда checksum asset присутствует.
-
-Это обеспечивает контроль целостности на стороне updater, но до реализации signed OTA доверие всё ещё заканчивается на клиенте, выполняющем update.
+GitHub Release workflow формирует `.sha256`; `hydroctl update` проверяет checksum при его наличии. До signed OTA доверие всё ещё заканчивается на клиенте, выполняющем update.
 
 ## Сообщение об уязвимости
 
-Не публикуйте рабочие Wi‑Fi credentials, реальные адреса закрытой сети или другие секреты в issue.
+Не публикуйте рабочие Wi‑Fi credentials, приватные адреса или другие secrets.
 
-При описании проблемы укажите:
-
-- версию и build SHA;
-- затронутый endpoint/компонент;
-- условия доступа, необходимые для эксплуатации;
-- ожидаемое и фактическое поведение;
-- минимальные шаги воспроизведения без секретных данных.
-
-До отдельного security channel критические проблемы можно сообщать владельцу репозитория приватным способом, если такой канал доступен в GitHub-профиле/организации.
+Укажите version/build SHA, endpoint/component, требуемый уровень доступа, ожидаемое/фактическое поведение и минимальные шаги воспроизведения без секретов.
