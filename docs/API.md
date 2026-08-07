@@ -46,38 +46,21 @@ Provisioning AP: `http://192.168.4.1`
   "pump_flow_lpm": 1.742,
   "delivery_efficiency_pct": 85,
   "hydraulics_calibrated": true,
+  "calibration_sample_count": 3,
+  "calibration_cv_pct": 2.7,
+  "calibration_epoch": 1786137735,
+  "calibrated_at": "2026-08-07 18:42:15",
   "event_count": 7
 }
 ```
 
-`pump_source`:
-
-- `none`;
-- `schedule`;
-- `web_manual`;
-- `button_manual`;
-- `calibration`.
+`pump_source`: `none`, `schedule`, `web_manual`, `button_manual`, `calibration`.
 
 `rssi` может отсутствовать в AP-режиме.
 
 ## `GET /api/diagnostics`
 
-```json
-{
-  "api_version": 3,
-  "version": "v1.3.0",
-  "build": "a1b2c3d4",
-  "free_heap": 123456,
-  "min_free_heap": 110000,
-  "flash_size": 4194304,
-  "sketch_size": 890000,
-  "free_sketch_space": 650000,
-  "reset_reason": 1,
-  "reset_reason_text": "питание включено",
-  "event_log_capacity": 32,
-  "event_log_session_only": true
-}
-```
+Возвращает version/build/API, free/min heap, flash/sketch sizes, reset reason и параметры RAM event log.
 
 ## Автоматика
 
@@ -93,100 +76,106 @@ Provisioning AP: `http://192.168.4.1`
 {"enabled":false}
 ```
 
-Пауза:
-
-- не удаляет расписание;
-- запрещает новые плановые запуски;
-- если в этот момент работает именно `schedule`-цикл, он останавливается с причиной `automation_paused`;
-- ручные циклы не выключаются скрыто;
-- при возобновлении Scheduler не «догоняет» слот, пропущенный в текущей минуте.
-
-Состояние сохраняется в NVS.
+Пауза не удаляет расписание, запрещает новые schedule-start, останавливает активный schedule-cycle, но не скрыто прерывает manual/calibration cycle. При resume Scheduler не «догоняет» слот текущей минуты. Состояние сохраняется в NVS.
 
 ## Ручное управление насосом
 
 ### `POST /api/relay/on?duration=N`
 
-Запускает ручной web-цикл.
-
-- минимум 1 с;
-- максимум `MAX_WATERING_SECONDS` (3600 с);
-- неверное значение заменяется безопасным default.
-
-```json
-{"status":"ok"}
-```
+Ручной web-start, 1…3600 s.
 
 ### `POST /api/relay/off`
 
-Немедленная ручная остановка.
-
-```json
-{"status":"ok"}
-```
+Немедленная manual stop.
 
 ## Калибровка гидравлики
 
 ### `POST /api/calibration/start?duration=N`
 
-Запускает отдельный calibration-цикл.
+Запускает calibration-cycle только если automation paused и pump idle. Duration: 5…120 s.
 
-Условия:
-
-- таймерная автоматика должна быть на паузе;
-- насос должен быть выключен;
-- длительность 5–120 с.
-
-Успех:
-
-```json
-{"status":"ok"}
-```
-
-Конфликты:
+Возможные конфликты:
 
 ```json
 {"error":"automation_must_be_paused"}
 {"error":"pump_busy"}
 ```
 
-Некорректная длительность:
-
-```json
-{"error":"calibration_duration_5_120"}
-```
-
 ### `GET /api/hydraulics`
 
 ```json
 {
-  "flow_lpm":1.742,
-  "efficiency_pct":85,
-  "calibrated":true
+  "flow_lpm": 1.742,
+  "efficiency_pct": 85,
+  "calibrated": true,
+  "sample_count": 3,
+  "cv_pct": 2.7,
+  "calibration_epoch": 1786137735,
+  "calibrated_at": "2026-08-07 18:42:15"
 }
 ```
 
+`sample_count` и `cv_pct` описывают **повторяемость серии**, а не точность агрономической нормы.
+
 ### `POST /api/hydraulics`
+
+Минимальный вариант:
 
 ```json
 {
-  "flow_lpm":1.742,
-  "efficiency_pct":85
+  "flow_lpm": 1.742,
+  "efficiency_pct": 85
+}
+```
+
+С метаданными серии:
+
+```json
+{
+  "flow_lpm": 1.742,
+  "efficiency_pct": 85,
+  "sample_count": 3,
+  "cv_pct": 2.7
+}
+```
+
+Для restore допускается сохранённый timestamp:
+
+```json
+{
+  "flow_lpm": 1.742,
+  "efficiency_pct": 85,
+  "sample_count": 3,
+  "cv_pct": 2.7,
+  "calibration_epoch": 1786137735
 }
 ```
 
 Ограничения:
 
 - `flow_lpm`: `0` для очистки либо 0.05…100 л/мин;
-- `efficiency_pct`: 10…100.
+- `efficiency_pct`: 10…100;
+- `sample_count`: 0…9;
+- `cv_pct`: 0…500.
 
-Расход хранится в NVS как целое число мл/мин, чтобы не зависеть от бинарного представления float.
+Если `sample_count` не передан, существующие metadata серии сохраняются. Если `flow_lpm=0`, вся calibration metadata очищается. Если новая серия передана без `calibration_epoch`, сервер использует текущее синхронизированное локальное NTP-время либо 0 при отсутствии NTP.
 
-Калибровочный мастер web UI вычисляет расход из измерения:
+Q хранится в NVS целым числом мл/мин; CV — в сотых долях процента.
+
+Для отдельного измерения:
 
 ```text
-Q [л/мин] = measured_ml × 60 / duration_sec / 1000
+Qi [л/мин] = measured_ml × 60 / duration_sec / 1000
 ```
+
+Для серии web UI использует среднее Q и sample coefficient of variation:
+
+```text
+mean(Q) = sum(Qi) / n
+CV = sample_stddev(Qi) / mean(Q) × 100%
+```
+
+UI требует минимум 2 повтора и рекомендует 3+. CV характеризует только разброс повторных измерений.
 
 ## Журнал текущей сессии
 
@@ -209,34 +198,15 @@ Q [л/мин] = measured_ml × 60 / duration_sec / 1000
 }
 ```
 
-Типы событий:
+Типы: `boot`, `pump_start`, `pump_stop`, `automation_enabled`, `automation_paused`, `schedule_changed`, `hydraulics_saved`, `config_changed`, `ota_started`, `reboot_requested`.
 
-- `boot`;
-- `pump_start`;
-- `pump_stop`;
-- `automation_enabled`;
-- `automation_paused`;
-- `schedule_changed`;
-- `hydraulics_saved`;
-- `config_changed`;
-- `ota_started`;
-- `reboot_requested`.
+Stop reasons: `manual`, `timeout`, `reboot`, `ota`, `automation_paused`.
 
-Причины остановки:
-
-- `manual`;
-- `timeout`;
-- `reboot`;
-- `ota`;
-- `automation_paused`.
-
-`timestamp` отсутствует, если на момент события NTP ещё не был синхронизирован; `uptime` присутствует всегда.
-
-Журнал RAM-only и содержит максимум 32 записи. Он не является долговременным audit log.
+`timestamp` отсутствует, если NTP ещё не синхронизирован; `uptime` присутствует всегда. Журнал RAM-only, максимум 32 записи.
 
 ### `POST /api/events/clear`
 
-Очищает только RAM-журнал текущей сессии.
+Очищает RAM-журнал текущей сессии.
 
 ## Расписание
 
@@ -249,93 +219,43 @@ Q [л/мин] = measured_ml × 60 / duration_sec / 1000
 ]
 ```
 
-Поля:
-
-- `h`: 0–23;
-- `m`: 0–59;
-- `d`: 1–3600 секунд.
-
 ### `POST /api/schedule`
 
-Полностью заменяет расписание.
+Полностью заменяет расписание. До 48 slots, уникальное `HH:MM`, duration 1…3600 s.
 
-Ограничения:
-
-- не более 48 слотов;
-- уникальное `HH:MM`;
-- длительность 1–3600 секунд.
-
-Возможные ошибки:
-
-```json
-{"error":"schedule_must_be_array"}
-{"error":"too_many_slots"}
-{"error":"invalid_slot"}
-{"error":"duplicate_time"}
-```
+Ошибки: `schedule_must_be_array`, `too_many_slots`, `invalid_slot`, `duplicate_time`.
 
 ### `POST /api/schedule/reset`
 
-Восстанавливает fallback-график из `src/config.h` и записывает его в NVS.
+Восстанавливает fallback-график `src/config.h`.
 
 ## Сеть и время
 
 ### `GET /api/config`
 
 ```json
-{
-  "ssid":"HomeWiFi",
-  "has_pass":true,
-  "tz":3
-}
+{"ssid":"HomeWiFi","has_pass":true,"tz":3}
 ```
 
-Пароль не выдаётся.
+Password не выдаётся.
 
 ### `POST /api/config`
 
 ```json
-{
-  "ssid":"HomeWiFi",
-  "pass":"new-password-or-empty",
-  "tz":3
-}
+{"ssid":"HomeWiFi","pass":"new-password-or-empty","tz":3}
 ```
 
-- пустой `pass` оставляет старый пароль;
-- SSID 1–32 символа;
-- password до 63 символов;
-- UTC offset −12…+14.
-
-После записи насос останавливается и устройство перезагружается.
+Пустой `pass` оставляет старый пароль. После записи pump stop + reboot.
 
 ## `POST /api/reboot`
 
-Фиксирует событие, останавливает насос и перезагружает контроллер.
+Фиксирует событие, останавливает pump и reboot.
 
 ## `POST /ota/upload`
 
-Multipart/form-data, поле `file`.
+Multipart/form-data, поле `file`. Перед записью фиксируется `ota_started` и pump stop с reason `ota`.
 
-Перед записью:
-
-1. фиксируется `ota_started`;
-2. насос останавливается с причиной `ota`;
-3. запускается Update API.
-
-Успех:
-
-```text
-HTTP 200
-OK
-```
-
-Ошибка:
-
-```text
-HTTP 500
-FAIL
-```
+Успех: HTTP 200 + `OK`; ошибка: HTTP 500 + `FAIL`.
 
 ## `GET /manifest.webmanifest`
 
@@ -343,7 +263,7 @@ Manifest standalone/PWA-представления UI.
 
 ## Совместимость
 
-API v3 добавляет операции, гидравлику и журнал сессии. Новые необязательные поля могут добавляться без bump версии, если существующая семантика не меняется. Breaking changes требуют увеличения `HYDRO_API_VERSION`.
+API v3 добавляет operational mode, hydraulic calibration и current-session event log. Новые необязательные поля могут добавляться без bump, если существующая семантика не меняется. Breaking changes требуют увеличения `HYDRO_API_VERSION`.
 
 ## Примеры
 
@@ -354,7 +274,8 @@ curl -X POST -H 'Content-Type: application/json' \
   -d '{"enabled":false}' http://hydro.local/api/automation
 curl -X POST 'http://hydro.local/api/calibration/start?duration=30'
 curl -X POST -H 'Content-Type: application/json' \
-  -d '{"flow_lpm":1.742,"efficiency_pct":85}' http://hydro.local/api/hydraulics
+  -d '{"flow_lpm":1.742,"efficiency_pct":85,"sample_count":3,"cv_pct":2.7}' \
+  http://hydro.local/api/hydraulics
 ```
 
 Для обычной эксплуатации предпочтительнее `tools/hydroctl.py`.
