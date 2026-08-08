@@ -114,6 +114,11 @@ window.fetch=async function(input,options={{}}){{
   }}
   return __realFetch(input,options);
 }};
+window.addEventListener('load',()=>{{
+  const tab=new URLSearchParams(location.search).get('tab');
+  if(!tab)return;
+  setTimeout(()=>document.querySelector(`[data-tab="${{tab}}"]`)?.click(),250);
+}});
 </script>"""
 
 
