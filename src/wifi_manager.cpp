@@ -49,25 +49,24 @@ String WiFiManager::localIP() {
     return ap_mode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
 }
 
-bool WiFiManager::startAP(const char* ap_ssid, const char* ap_pass) {
-    if (ap_ssid == nullptr || strlen(ap_ssid) == 0 ||
-        ap_pass == nullptr || strlen(ap_pass) < 8) {
-        Serial.println("[WiFi] Refusing to start unprotected provisioning AP");
+bool WiFiManager::startAP(const char* ap_ssid) {
+    if (ap_ssid == nullptr || strlen(ap_ssid) == 0) {
+        Serial.println("[WiFi] Setup AP name is empty");
         ap_mode = false;
         return false;
     }
 
-    Serial.printf("[WiFi] Starting protected provisioning AP: %s\n", ap_ssid);
+    Serial.printf("[WiFi] Starting setup network: %s\n", ap_ssid);
     WiFi.mode(WIFI_AP);
-    if (!WiFi.softAP(ap_ssid, ap_pass)) {
-        Serial.println("[WiFi] Failed to start provisioning AP");
+    if (!WiFi.softAP(ap_ssid)) {
+        Serial.println("[WiFi] Failed to start setup network");
         ap_mode = false;
         return false;
     }
 
     dnsServer.start(53, "*", WiFi.softAPIP());
     ap_mode = true;
-    Serial.printf("[WiFi] Provisioning URL: http://%s\n", WiFi.softAPIP().toString().c_str());
+    Serial.printf("[WiFi] Setup page: http://%s\n", WiFi.softAPIP().toString().c_str());
     return true;
 }
 
