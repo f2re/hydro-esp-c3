@@ -43,7 +43,7 @@ HydroESP-C3 — небольшой автономный контроллер п�
 - 🌗 тёмная, светлая и системная темы;
 - 🧾 журнал последних действий текущей сессии;
 - 🩺 диагностика RAM / flash / reset reason / version;
-- 💾 backup/restore без Wi‑Fi password;
+- 💾 backup/restore без Wi‑Fi-пароля;
 - ⬆️ OTA из браузера или через `hydroctl`;
 - 🔐 защищённый commissioning Wi‑Fi с device key на OLED/Serial;
 - 🧰 один CLI для install / doctor / pause / backup / update.
