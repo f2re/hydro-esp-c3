@@ -30,6 +30,7 @@ jobs:
           set -euo pipefail
           python -m py_compile tools/hydroctl.py tools/check_web_ui.py tools/export_ui_preview.py tools/make_factory_image.py scripts/build_flags.py
           python tools/hydroctl.py --help >/dev/null
+          python tools/hydroctl.py install --help >/dev/null
           python tools/make_factory_image.py --help >/dev/null
           sh -n install.sh update.sh
 
@@ -54,6 +55,15 @@ jobs:
 
       - name: Build ESP32-C3 firmware
         run: pio run
+
+      - name: Verify fresh-install erase target
+        shell: bash
+        run: |
+          set -o pipefail
+          set +e
+          pio run -t erase -v --upload-port /dev/null 2>&1 | tee .artifacts/erase-target.log
+          set -e
+          grep -Eq 'erase[-_]flash' .artifacts/erase-target.log
 
       - name: Build factory image
         run: python tools/make_factory_image.py .artifacts/hydro-esp-c3-factory.bin
