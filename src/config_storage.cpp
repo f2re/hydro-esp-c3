@@ -1,41 +1,123 @@
 #include "config_storage.h"
 
+namespace {
+bool validSlot(const WateringSlot &slot) {
+    return slot.hour <= 23 && slot.minute <= 59 &&
+           slot.duration_sec >= 1 && slot.duration_sec <= MAX_WATERING_SECONDS;
+}
+}
+
 void ConfigStorage::begin() {
     prefs.begin("hydro", false);
+}
+
+void ConfigStorage::loadFactorySchedule(Config &config) {
+    config.schedule_count = 0;
+    for (uint8_t i = 0; i < SCHEDULE_COUNT && i < MAX_SCHEDULE_SLOTS; ++i) {
+        config.schedule[config.schedule_count++] = WATERING_SCHEDULE[i];
+    }
 }
 
 void ConfigStorage::load(Config &config) {
     config.wifi_ssid = prefs.getString("ssid", WIFI_SSID);
     config.wifi_pass = prefs.getString("pass", WIFI_PASSWORD);
     config.timezone_offset = prefs.getInt("tz", TIMEZONE_OFFSET);
-    config.latitude = prefs.getFloat("lat", 0.0);
-    config.longitude = prefs.getFloat("lon", 0.0);
+    if (config.timezone_offset < -12 || config.timezone_offset > 14) {
+        config.timezone_offset = TIMEZONE_OFFSET;
+    }
+    config.latitude = prefs.getFloat("lat", 0.0f);
+    if (config.latitude < -90.0f || config.latitude > 90.0f) {
+        config.latitude = 0.0f;
+    }
+    config.longitude = prefs.getFloat("lon", 0.0f);
+    if (config.longitude < -180.0f || config.longitude > 180.0f) {
+        config.longitude = 0.0f;
+    }
     config.last_solution_change = prefs.getUInt("sol_chg", 0);
-    
-    config.schedule_count = prefs.getUChar("sched_cnt", 0);
-    if (config.schedule_count > 48) config.schedule_count = 48;
 
-    size_t len = prefs.getBytesLength("sched");
-    if (len > 0 && len == config.schedule_count * sizeof(WateringSlot)) {
-        prefs.getBytes("sched", config.schedule, len);
-    } else {
-        // Загружаем дефолтное расписание, если нет сохраненного
-        config.schedule_count = SCHEDULE_COUNT;
-        for (int i = 0; i < SCHEDULE_COUNT; i++) {
-            config.schedule[i] = WATERING_SCHEDULE[i];
+    config.automation_enabled = prefs.getBool("auto", true);
+    config.pump_flow_ml_min = prefs.getUInt("flow_ml", 0);
+    if (config.pump_flow_ml_min > 100000UL) {
+        config.pump_flow_ml_min = 0;
+    }
+    config.delivery_efficiency_pct = prefs.getUChar("eff_pct", 85);
+    if (config.delivery_efficiency_pct < 10 || config.delivery_efficiency_pct > 100) {
+        config.delivery_efficiency_pct = 85;
+    }
+
+    config.calibration_protocol_version = prefs.getUChar("cal_ver", 0);
+    if (config.calibration_protocol_version > HYDRO_CALIBRATION_PROTOCOL_VERSION) {
+        // Future/unknown protocol: preserve the measured flow but mark the
+        // method as unknown to the current firmware rather than pretending it
+        // was produced by the current calibration procedure.
+        config.calibration_protocol_version = 0;
+    }
+    config.calibration_sample_count = prefs.getUChar("cal_samp", 0);
+    if (config.calibration_sample_count > 9) config.calibration_sample_count = 0;
+    config.calibration_cv_x100 = prefs.getUShort("cal_cv100", 0);
+    if (config.calibration_cv_x100 > 50000U) config.calibration_cv_x100 = 0;
+    config.calibration_local_epoch = prefs.getUInt("cal_epoch", 0);
+
+    if (config.pump_flow_ml_min == 0) {
+        config.calibration_protocol_version = 0;
+        config.calibration_sample_count = 0;
+        config.calibration_cv_x100 = 0;
+        config.calibration_local_epoch = 0;
+    }
+
+    uint8_t count = prefs.getUChar("sched_cnt", SCHEDULE_COUNT);
+    if (count > MAX_SCHEDULE_SLOTS) {
+        loadFactorySchedule(config);
+        return;
+    }
+
+    const size_t expected = static_cast<size_t>(count) * sizeof(WateringSlot);
+    const size_t stored = prefs.getBytesLength("sched");
+    if (count == 0) {
+        config.schedule_count = 0;
+        return;
+    }
+    if (stored != expected || expected == 0) {
+        loadFactorySchedule(config);
+        return;
+    }
+
+    prefs.getBytes("sched", config.schedule, expected);
+    for (uint8_t i = 0; i < count; ++i) {
+        if (!validSlot(config.schedule[i])) {
+            loadFactorySchedule(config);
+            return;
         }
     }
+    config.schedule_count = count;
 }
 
 void ConfigStorage::save(const Config &config) {
+    const uint8_t count = config.schedule_count > MAX_SCHEDULE_SLOTS
+        ? MAX_SCHEDULE_SLOTS
+        : config.schedule_count;
+
     prefs.putString("ssid", config.wifi_ssid);
     prefs.putString("pass", config.wifi_pass);
     prefs.putInt("tz", config.timezone_offset);
     prefs.putFloat("lat", config.latitude);
     prefs.putFloat("lon", config.longitude);
     prefs.putUInt("sol_chg", config.last_solution_change);
-    prefs.putUChar("sched_cnt", config.schedule_count);
-    prefs.putBytes("sched", config.schedule, config.schedule_count * sizeof(WateringSlot));
+    prefs.putBool("auto", config.automation_enabled);
+    prefs.putUInt("flow_ml", config.pump_flow_ml_min);
+    prefs.putUChar("eff_pct", config.delivery_efficiency_pct);
+    prefs.putUChar("cal_ver", config.calibration_protocol_version);
+    prefs.putUChar("cal_samp", config.calibration_sample_count);
+    prefs.putUShort("cal_cv100", config.calibration_cv_x100);
+    prefs.putUInt("cal_epoch", config.calibration_local_epoch);
+    prefs.putUChar("sched_cnt", count);
+
+    if (count == 0) {
+        prefs.remove("sched");
+    } else {
+        prefs.putBytes("sched", config.schedule,
+                       static_cast<size_t>(count) * sizeof(WateringSlot));
+    }
 }
 
 void ConfigStorage::clear() {

@@ -1,84 +1,107 @@
-// ntp_manager.cpp
 #include "ntp_manager.h"
-#include "config.h"
 #include <Arduino.h>
+#include <time.h>
 
-void NTPManager::begin() {
+void NTPManager::begin(int offset_hours) {
+    setTimeOffset(offset_hours);
     _client = new NTPClient(_udp, "pool.ntp.org",
-        (long)TIMEZONE_OFFSET * 3600, NTP_SYNC_INTERVAL);
+                            static_cast<long>(_offsetHours) * 3600L,
+                            NTP_SYNC_INTERVAL);
     _client->begin();
     _synced = _client->update();
-    if (_synced)
-        Serial.printf("[NTP] Synced: %s\n", _client->getFormattedTime().c_str());
-    else
-        Serial.println("[NTP] Sync failed, will retry...");
-}
-void NTPManager::update() {
-    if (!_client) return;
-    if (_client->update() && !_synced) {
-        _synced = true;
-        Serial.printf("[NTP] Synced: %s\n", _client->getFormattedTime().c_str());
+    if (_synced) {
+        Serial.printf("[NTP] Synced: %s UTC%+d\n",
+                      _client->getFormattedTime().c_str(), _offsetHours);
+    } else {
+        Serial.println("[NTP] Sync failed, will retry");
     }
 }
-bool NTPManager::isSynced() const { return _synced; }
-uint8_t NTPManager::getHour()   const { return _client ? _client->getHours()   : 0; }
-uint8_t NTPManager::getMinute() const { return _client ? _client->getMinutes() : 0; }
+
+void NTPManager::update() {
+    if (!_client) return;
+    if (_client->update()) {
+        if (!_synced) {
+            Serial.printf("[NTP] Synced: %s UTC%+d\n",
+                          _client->getFormattedTime().c_str(), _offsetHours);
+        }
+        _synced = true;
+    }
+}
+
+bool NTPManager::isSynced() const {
+    return _synced;
+}
+
+uint8_t NTPManager::getHour() const {
+    return _client ? _client->getHours() : 0;
+}
+
+uint8_t NTPManager::getMinute() const {
+    return _client ? _client->getMinutes() : 0;
+}
+
 String NTPManager::getTimeString() const {
-    return _synced ? _client->getFormattedTime() : "--:--:--";
+    return (_synced && _client) ? _client->getFormattedTime() : "--:--:--";
+}
+
+uint32_t NTPManager::getLocalEpoch() const {
+    return (_synced && _client) ? static_cast<uint32_t>(_client->getEpochTime()) : 0;
+}
+
+void NTPManager::getSunriseSunset(float latitude, float longitude,
+                                  float &sunrise, float &sunset) const {
+    sunrise = 6.0f;
+    sunset = 18.0f;
+    if (!_synced || !_client || latitude < -90.0f || latitude > 90.0f ||
+        longitude < -180.0f || longitude > 180.0f) {
+        return;
+    }
+
+    const time_t localEpoch = static_cast<time_t>(_client->getEpochTime());
+    struct tm dayInfo {};
+    gmtime_r(&localEpoch, &dayInfo);
+
+    const float latitudeRad = latitude * PI / 180.0f;
+    const float declination = 0.409f * sinf(
+        2.0f * PI * (static_cast<float>(dayInfo.tm_yday) - 81.0f) / 365.0f);
+    const float argument = -tanf(latitudeRad) * tanf(declination);
+    if (argument >= 1.0f) {
+        sunrise = 0.0f;
+        sunset = 0.0f;
+        return;
+    }
+    if (argument <= -1.0f) {
+        sunrise = 0.0f;
+        sunset = 24.0f;
+        return;
+    }
+
+    const float hourAngle = acosf(argument);
+    const float solarSunrise = 12.0f - hourAngle * 12.0f / PI;
+    const float solarSunset = 12.0f + hourAngle * 12.0f / PI;
+    const float correction = (longitude - 15.0f * _offsetHours) / 15.0f;
+    sunrise = fmodf(solarSunrise - correction + 24.0f, 24.0f);
+    sunset = fmodf(solarSunset - correction + 24.0f, 24.0f);
 }
 
 String NTPManager::getDateString() const {
-    if (!_synced) return "--.--.----";
-    time_t rawtime = _client->getEpochTime();
-    struct tm * ti;
-    ti = localtime(&rawtime);
+    if (!_synced || !_client) return "--.--.----";
+
+    // NTPClient::getEpochTime() already includes the configured offset. Use
+    // UTC calendar conversion so host/process TZ cannot shift the date again.
+    const time_t localEpoch = static_cast<time_t>(_client->getEpochTime());
+    struct tm value {};
+    gmtime_r(&localEpoch, &value);
+
     char buf[12];
-    snprintf(buf, 12, "%02d.%02d.%04d", ti->tm_mday, ti->tm_mon + 1, ti->tm_year + 1900);
+    snprintf(buf, sizeof(buf), "%02d.%02d.%04d",
+             value.tm_mday, value.tm_mon + 1, value.tm_year + 1900);
     return String(buf);
 }
 
-uint32_t NTPManager::getEpochTime() const {
-    return _client ? _client->getEpochTime() : 0;
-}
-
-void NTPManager::getSunriseSunset(float lat, float lon, float &sunrise, float &sunset) {
-    if (!_synced || lat == 0.0) { 
-        sunrise = 6.0; 
-        sunset = 18.0; 
-        return; 
-    }
-    
-    time_t rawtime = _client->getEpochTime();
-    struct tm * ti = localtime(&rawtime);
-    
-    int day = ti->tm_yday;
-    float latRad = lat * PI / 180.0;
-    float declination = 0.409 * sin(2.0 * PI * (day - 81) / 365.0);
-    float arg = -tan(latRad) * tan(declination);
-    
-    if (arg > 1.0) { // Polar night
-        sunrise = 0; sunset = 0; return;
-    } else if (arg < -1.0) { // Polar day
-        sunrise = 0; sunset = 24; return;
-    }
-    
-    float hourAngle = acos(arg);
-    float sunsetTime = 12.0 + hourAngle * 12.0 / PI;
-    float sunriseTime = 12.0 - hourAngle * 12.0 / PI;
-    
-    float lonCorrection = (lon - (15.0 * (float)_offset)) / 15.0;
-    
-    sunrise = sunriseTime - lonCorrection;
-    sunset = sunsetTime - lonCorrection;
-    
-    if (sunrise < 0) sunrise += 24;
-    if (sunrise >= 24) sunrise -= 24;
-    if (sunset < 0) sunset += 24;
-    if (sunset >= 24) sunset -= 24;
-}
-
 void NTPManager::setTimeOffset(int offset_hours) {
-    _offset = offset_hours;
-    if (_client) _client->setTimeOffset(offset_hours * 3600);
+    if (offset_hours < -12) offset_hours = -12;
+    if (offset_hours > 14) offset_hours = 14;
+    _offsetHours = offset_hours;
+    if (_client) _client->setTimeOffset(static_cast<long>(_offsetHours) * 3600L);
 }
-
