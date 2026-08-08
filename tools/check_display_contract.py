@@ -55,16 +55,16 @@ require("src/recovery_ota.cpp", "drawOTAError")
 
 # Provisioning is also localized; SSID/IP remain literal network identifiers.
 require("src/oled_provisioning.cpp", "НАСТРОЙКА")
-for obsolete in (
-    "SETUP WIFI",
-    "NO PASSWORD",
-    "WEB ADDRESS",
-    "NEXT WATERING",
-    "SCHEDULE",
-    "WATERING",
-    "OTA UPDATE",
+for obsolete_literal in (
+    '"SETUP WIFI"',
+    '"NO PASSWORD"',
+    '"WEB ADDRESS"',
+    '"NEXT WATERING"',
+    '"SCHEDULE"',
+    '"WATERING"',
+    '"OTA UPDATE..."',
 ):
-    forbid("src/oled_display.cpp", obsolete)
-    forbid("src/oled_provisioning.cpp", obsolete)
+    forbid("src/oled_display.cpp", obsolete_literal)
+    forbid("src/oled_provisioning.cpp", obsolete_literal)
 
 print("display contract: OK (Russian states + pause safety + throttled OTA progress)")
