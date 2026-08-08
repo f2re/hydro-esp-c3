@@ -7,8 +7,6 @@
 #include "ota_manager.h"
 
 namespace {
-constexpr uint16_t RECOVERY_OTA_PORT = 3232;
-
 const char* otaErrorText(ota_error_t error) {
     switch (error) {
         case OTA_AUTH_ERROR: return "auth";
@@ -30,8 +28,9 @@ void RecoveryOTA::begin(RelayController* r, WiFiManager* w, OledDisplay* o) {
 
     ArduinoOTA.setPort(RECOVERY_OTA_PORT);
     ArduinoOTA.setHostname(MDNS_HOST);
-    // The application already owns mDNS for hydro.local. The recovery channel
-    // only needs the numeric IP, so do not let ArduinoOTA restart mDNS.
+    // The application owns the single hydro.local mDNS responder. Do not let
+    // ArduinoOTA call MDNS.begin()/end() itself; main.cpp advertises the
+    // standard Arduino OTA service on this same responder after MDNS.begin().
     ArduinoOTA.setMdnsEnabled(false);
 
     ArduinoOTA.onStart([this]() {
@@ -39,7 +38,7 @@ void RecoveryOTA::begin(RelayController* r, WiFiManager* w, OledDisplay* o) {
         eventLog.record(EventType::OtaStarted);
         otaManager.begin();
         if (oled) oled->drawOTA(0);
-        Serial.println("[RECOVERY OTA] Update started on port 3232");
+        Serial.printf("[RECOVERY OTA] Update started on port %u\n", RECOVERY_OTA_PORT);
     });
 
     ArduinoOTA.onProgress([this](unsigned int progress, unsigned int total) {
