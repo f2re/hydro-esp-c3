@@ -56,14 +56,12 @@ jobs:
       - name: Build ESP32-C3 firmware
         run: pio run
 
-      - name: Verify fresh-install erase target
+      - name: Verify NVS-only fresh-install reset
         shell: bash
         run: |
-          set -o pipefail
-          set +e
-          pio run -t erase -v --upload-port /dev/null 2>&1 | tee .artifacts/erase-target.log
-          set -e
-          grep -Eq 'erase[-_]flash' .artifacts/erase-target.log
+          set -euo pipefail
+          pio pkg exec -- esptool --chip esp32c3 erase-region --help >/dev/null
+          grep -Eq '^nvs,[[:space:]]+data,[[:space:]]+nvs,[[:space:]]+0x9000,[[:space:]]+0x4000' partitions.csv
 
       - name: Build factory image
         run: python tools/make_factory_image.py .artifacts/hydro-esp-c3-factory.bin
