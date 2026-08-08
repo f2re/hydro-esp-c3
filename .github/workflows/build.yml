@@ -63,8 +63,10 @@ jobs:
           python tools/check_web_assets.py
           python tools/check_schedule_builder.py
 
-      - name: Export UI preview
-        run: python tools/export_ui_preview.py .artifacts/ui-preview.html --mock
+      - name: Export UI previews
+        run: |
+          python tools/export_ui_preview.py .artifacts/ui-preview.html --mock
+          python tools/export_ui_preview.py .artifacts/ui-preview-schedule.html --mock --tab schedule
 
       - name: Render UI screenshots
         shell: bash
@@ -72,10 +74,11 @@ jobs:
           set -euo pipefail
           CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
           BASE="file://${GITHUB_WORKSPACE}/.artifacts/ui-preview.html"
+          SCHEDULE="file://${GITHUB_WORKSPACE}/.artifacts/ui-preview-schedule.html"
           "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
             --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-overview.png "$BASE"
           "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
-            --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-schedule.png "$BASE?tab=schedule"
+            --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-schedule.png "$SCHEDULE"
           "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
             --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-hydraulics.png "$BASE?tab=hydraulics"
           "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
@@ -95,6 +98,7 @@ jobs:
             .pio/build/esp32c3_supermini/firmware.bin
             .artifacts/hydro-esp-c3-install.bin
             .artifacts/ui-preview.html
+            .artifacts/ui-preview-schedule.html
             .artifacts/ui-desktop-overview.png
             .artifacts/ui-desktop-schedule.png
             .artifacts/ui-desktop-hydraulics.png
