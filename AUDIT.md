@@ -1,209 +1,77 @@
 # Аудит HydroESP-C3
 
-Актуализировано: **2026-08-07**
+Актуализировано: **2026-08-08**
 
-## Текущее состояние
+## Состояние проекта
 
-HydroESP-C3 переведён из экспериментального ESP32-контроллера в цельный локальный эксплуатационный контур: единые ограничения firmware/API/NVS, responsive web UI, commissioning, безопасное ручное управление, отдельный maintenance mode, гидравлическая калибровка, диагностика, backup/restore, USB installer, OTA updater, CI и release pipeline.
+HydroESP-C3 сейчас представляет собой цельный local-first контроллер: timer automation, ручное управление, maintenance pause, серийная гидравлическая калибровка, OLED/Serial, responsive Web UI, backup/restore, OTA, diagnostics и CI.
 
-Принципиальная граница остаётся прежней: автоматический режим — **суточный таймер**. Проект не выдаёт фиксированный график, VPD или ручную гидравлическую калибровку за универсальную физиологическую модель потребности растений.
+После последней интеграции сохранены и дополнительные функции актуального `main`: координаты установки, расчёт восхода/заката, отметка обслуживания раствора и OTA-progress на OLED.
 
-## Закрыто программным контуром
+Автоматический режим по-прежнему является **таймером**, а сохранённый `Q` — измеренной гидравлической константой. Проект не изображает adaptive irrigation без реальных сенсоров.
 
-### Управление и отказоустойчивость
+## Что закрыто
 
-- единый `MAX_SCHEDULE_SLOTS = 48` во frontend/API/NVS/Scheduler;
-- серверная валидация schedule/config/hydraulics;
-- NVS validation + fallback для повреждённого расписания;
-- любой start ограничен `MAX_WATERING_SECONDS`;
-- reboot/OTA останавливают pump;
-- BOOT и web: hold-to-start, stop одним действием;
-- BOOT, удерживаемый при reset/flashing, не превращается в start после загрузки;
-- устранён догоняющий schedule-cycle после manual overlap;
-- pause/resume также потребляет текущую минуту и не запускает пропущенный slot;
-- rollover-safe relay timeout/progress;
-- non-blocking Wi‑Fi reconnect;
-- runtime Scheduler — единый источник графика для автоматики/OLED/Serial;
-- runtime UTC offset используется всеми интерфейсами.
-
-### Maintenance mode
-
-Timer automation имеет отдельное persisted состояние `active / paused`.
-
-Пауза:
-
-- не удаляет расписание;
-- запрещает новые plan-start;
-- останавливает активный **schedule**-цикл;
-- не скрыто прерывает manual/calibration cycle;
-- сохраняется в NVS;
-- является обязательным условием calibration endpoint.
-
-Restore через CLI намеренно ставит automation на паузу и не включает её обратно без явного `--resume-automation`.
-
-### Объяснимость действий
-
-RelayController отслеживает источник текущего запуска:
-
-- `schedule`;
-- `web_manual`;
-- `button_manual`;
-- `calibration`.
-
-Stop получает причину `manual / timeout / reboot / ota / automation_paused`.
-
-Добавлен RAM-only EventLog на 32 события текущей сессии: boot, start/stop, pause/resume, schedule/hydraulics/config changes, OTA/reboot. Он намеренно не пишет каждый полив в NVS.
-
-### Web UI / UX
-
-- desktop sidebar + mobile bottom navigation;
-- dark/light/system theme;
-- safe-area layout;
-- toast/custom modal вместо `alert/confirm`;
-- reduced-motion и keyboard focus;
-- первый экран показывает automation mode, readiness и pump source;
-- schedule dirty-state, disabled Save, runtime/duty summary, 24-hour timeline;
-- import создаёт только draft;
-- гидравлика оформлена как пошаговый calibration wizard;
-- system screen объединяет diagnostics, session event log и backup;
-- OTA drag-and-drop с confirmation/progress;
-- version/build/API отображаются в UI.
-
-### Гидравлическая калибровка
-
-Теперь `Q` не предлагается вводить как условное паспортное число. Реализован воспроизводимый мастер:
-
-1. pause automation;
-2. направить фактический output в мерную ёмкость;
-3. выполнить короткий calibration-run известной длительности;
-4. измерить `V` мл;
-5. вычислить `Q = V × 60 / t / 1000` л/мин;
-6. сохранить Q в NVS как мл/мин;
-7. сохранить коэффициент эффективной доставки `η`;
-8. использовать сохранённые Q/η в инженерном калькуляторе.
-
-API ограничивает calibration-run диапазоном 5–120 s и запрещает его при active automation или занятом pump.
-
-Это измеряет гидравлику, но **не водопотребление культуры**.
-
-### Данные, установка и сопровождение
-
-- Wi‑Fi password не возвращается API и не попадает в backup;
-- backup v2 содержит schedule + automation + hydraulics;
-- `hydroctl`: bootstrap/build/install/monitor/status/doctor/events/pause/resume/backup/restore/update;
-- PlatformIO при необходимости ставится в project-local `.venv`;
-- portable PlatformIO config без macOS-only serial port;
-- latest-release updater проверяет SHA-256 asset;
-- release pipeline выпускает versioned `.bin`, latest `.bin`, checksum;
-- CI проверяет tooling, embedded JS/UI и реальную firmware build.
-
-### Документация
-
-Актуальные документы:
-
-- `README.md` — точка входа;
-- `docs/INSTALL.md` — install/commissioning;
-- `docs/UPDATE.md` — OTA/backup/fail-safe restore;
-- `docs/TROUBLESHOOTING.md` — полевой runbook;
-- `docs/ARCHITECTURE.md` — runtime state и safety invariants;
-- `docs/API.md` — HTTP API v3;
-- `docs/SECURITY.md` — trust boundary/hardening;
-- `CHANGELOG.md` — release discipline.
+- единый лимит расписания 48 слотов и server-side validation;
+- maximum pump runtime, hold-to-start и мгновенный stop;
+- reboot/OTA выключают насос;
+- schedule не «догоняется» после manual overlap или maintenance pause;
+- persisted `automation active / paused`;
+- source/reason tracking каждого pump cycle;
+- RAM-журнал последних управляющих событий;
+- серийная калибровка `Q` с mean/CV/timestamp/protocol version;
+- desktop/mobile Web UI без CDN и native `alert/confirm`;
+- backup/restore и OTA через `hydroctl`;
+- защищённый `HydroESP-Setup` с отдельным device key;
+- commissioning key показывается на OLED/Serial и не попадает в backup;
+- README содержит реальные headless-снимки embedded UI;
+- CI проверяет tooling, embedded JS, screenshots и PlatformIO build.
 
 ## Открытые риски
 
 ### P0 — аппаратная безопасность
 
-1. Нет minimum-level sensor и dry-run interlock.
-2. Нет realtime подтверждения фактического потока/тока pump. Сохранённый Q — калибровочная константа, а не live feedback.
-3. Brown-out workaround ещё может отключать штатную защиту MCU; нужно исправить power path и вернуть detector.
-4. Нет независимого hardware fail-safe для критичного применения.
+1. Нет minimum-level/dry-run interlock.
+2. Нет live flow/current confirmation: GPIO ON ещё не означает, что вода действительно течёт.
+3. Нужно исправить силовой power path и вернуть штатный brown-out detector.
+4. Для критичного применения нет независимого hardware fail-safe.
 
-### P0/P1 — security
+### P1 — сеть и обновление
 
-- local HTTP/API без authentication/TLS;
-- OTA без device-side cryptographic signature verification;
-- commissioning AP открыт;
-- нет post-boot health confirmation/automatic rollback;
-- EventLog не является persistent audit log.
+- локальный HTTP пока без отдельной пользовательской авторизации;
+- application OTA без device-side signature verification;
+- automatic rollback после неудачной версии не реализован.
 
-До hardening устройство должно работать только в доверенной LAN без WAN port-forward.
+### P1 — время и telemetry
 
-### P1 — время
-
-После полного power loss абсолютное время зависит от NTP. RTC/holdover отсутствует; fixed UTC offset не реализует DST policy.
-
-### P1 — telemetry/adaptive
-
-Пока нет реальных streams:
-
-- air T/RH;
-- PAR/PPFD/radiation;
-- solution temperature;
-- level;
-- realtime flow;
-- root-zone moisture/mass/drainage;
-- EC/pH;
-- persistent sensor/event history.
+- после полного power loss абсолютное время зависит от NTP;
+- RTC holdover отсутствует;
+- нет реальных `T/RH / PAR / solution T / level / live flow / root-zone` streams.
 
 ## Научно корректный расчёт текущей версии
 
-Решается измеримая инженерная задача:
-
 ```text
 V_event = N × d / 1000
-
 t_on = 60 × V_event / (Q × η)
 ```
 
-где `N` — число растений, `d` — заданная подача на растение за цикл, `Q` — **измеренный фактический расход установки**, `η` — эффективная доставка, `t_on` — время работы pump.
+`Q` — фактически измеренный расход установки, `η` — эффективная доставка. VPD остаётся диагностическим показателем и не масштабирует полив автоматически.
 
-VPD рассчитывается по введённым T/RH только как diagnostic indicator. Он не является автоматическим multiplier времени полива.
+## Следующий разумный порядок
 
-## Рекомендуемая adaptive-модель v2
+Без лишнего усложнения:
 
-Минимальный измерительный контур:
-
-1. `T/RH`;
-2. PAR/PPFD или radiation;
-3. solution T;
-4. minimum level;
-5. realtime flow;
-6. root-zone/drainage state;
-7. EC/pH при необходимости.
-
-Концептуально:
-
-```text
-T_hat = f(RAD, VPD, LAI, crop, stage)
-Demand(t) = integral(T_hat dt)
-
-irrigate if:
-  accumulated_demand >= threshold
-  OR root_zone_condition <= low_limit
-
-stop/limit if:
-  delivered_volume >= target
-  OR root_zone/drainage condition reached
-  OR safety interlock triggered
-```
-
-Коэффициенты требуют калибровки на конкретной установке и проверки по фактическому water balance.
+1. hardware **level + live flow** safety loop;
+2. исправить питание и вернуть brown-out protection;
+3. простая auth для опасных HTTP-действий;
+4. `T/RH + solution T + light` telemetry;
+5. RTC только если реально нужна автономная работа без NTP;
+6. adaptive irrigation — только после накопления измерений, с timer fallback.
 
 ## Научная основа
 
-- FAO Irrigation and Drainage Paper 56, revised 2026, *Crop evapotranspiration: Guidelines for computing crop water requirements*, DOI `10.4060/cd6621en` — фундамент ET, но reference ET нельзя напрямую выдавать за water requirement небольшой гидропонной башни.
-- Medrano E. et al. (2012), *A simplified P-M model for improving irrigation management of strawberries in a semi-closed hydroponic system*, Acta Horticulturae 927, DOI `10.17660/ActaHortic.2012.927.43` — климат, leaf area, radiation и VPD.
-- Huy T.N. et al. (2014), *Analyses of Transpiration and Growth of Paprika as Affected by Moisture Content of Growing Medium in Rockwool Culture*, DOI `10.7235/hort.2014.13177` — важность root-zone state вместе с atmospheric demand.
+- FAO Irrigation and Drainage Paper 56, revised 2026, DOI `10.4060/cd6621en`;
+- Medrano E. et al. (2012), Acta Horticulturae 927, DOI `10.17660/ActaHortic.2012.927.43`;
+- Huy T.N. et al. (2014), DOI `10.7235/hort.2014.13177`.
 
-## Следующий порядок работ
-
-1. hardware `level + realtime flow + power/brownout` safety loop;
-2. repeatability/uniformity test для текущей Q-калибровки;
-3. protected commissioning + web-auth + signed OTA/rollback;
-4. RTC holdover;
-5. `T/RH + solution T + light + flow` telemetry;
-6. persistent ring storage + CSV export;
-7. root-zone/drainage feedback;
-8. profiles/crop stage;
-9. только после накопления и проверки данных — отдельный adaptive mode при сохранении timer fallback.
+Подробные эксплуатационные контракты: `README.md`, `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/SECURITY.md`.
