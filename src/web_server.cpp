@@ -31,6 +31,20 @@ void sendJson(AsyncWebServerRequest *request, JsonDocument &doc, int status = 20
     request->send(status, "application/json", response);
 }
 
+void sendWebUi(AsyncWebServerRequest *request) {
+    // WEB_UI_HTML is ~80 KiB and lives in flash/PROGMEM. The const-char
+    // overload of ESPAsyncWebServer copies the whole response into String;
+    // on ESP32-C3 that allocation can fail and produce HTTP 200 with
+    // Content-Length: 0. The length-aware uint8_t overload uses
+    // AsyncProgmemResponse and streams directly from flash instead.
+    request->send(
+        200,
+        "text/html; charset=utf-8",
+        reinterpret_cast<const uint8_t*>(WEB_UI_HTML),
+        sizeof(WEB_UI_HTML) - 1
+    );
+}
+
 void eventTimestamp(uint32_t localEpoch, char* buffer, size_t size) {
     if (!localEpoch || size == 0) {
         if (size) buffer[0] = '\0';
@@ -74,7 +88,7 @@ void WebServerManager::setupRoutes() {
     Serial.println("[HTTP] Registering routes...");
 
     server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
-        request->send(200, "text/html; charset=utf-8", WEB_UI_HTML);
+        sendWebUi(request);
     });
 
     server.on("/manifest.webmanifest", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -568,7 +582,7 @@ void WebServerManager::setupRoutes() {
 
     server.onNotFound([this](AsyncWebServerRequest *request) {
         if (wifi->isAPMode()) {
-            request->send(200, "text/html; charset=utf-8", WEB_UI_HTML);
+            sendWebUi(request);
         } else {
             request->send(404);
         }
