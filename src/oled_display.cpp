@@ -79,6 +79,22 @@ void OledDisplay::drawBoot(uint8_t step, const char* msg) {
 }
 
 void OledDisplay::drawOTA(uint8_t progress) {
+    const uint32_t now = millis();
+    if (progress > 100) progress = 100;
+
+    // OTA callbacks can arrive much faster than a 400 kHz I2C full-buffer OLED
+    // can usefully refresh. Redraw only on visible progress change or at a
+    // modest time cadence; 0 and 100 are always rendered immediately.
+    if (progress != 0 && progress != 100 && _lastOtaProgress >= 0) {
+        const int delta = abs(static_cast<int>(progress) - _lastOtaProgress);
+        if ((delta < 2 && static_cast<uint32_t>(now - _lastOtaDraw) < 250U) ||
+            (delta == 0 && static_cast<uint32_t>(now - _lastOtaDraw) < 500U)) {
+            return;
+        }
+    }
+    _lastOtaProgress = progress;
+    _lastOtaDraw = now;
+
     _u8g2.clearBuffer();
     drawRuCentered("ПРОШИВКА", 14);
 
@@ -92,6 +108,8 @@ void OledDisplay::drawOTA(uint8_t progress) {
 }
 
 void OledDisplay::drawOTAComplete() {
+    _lastOtaProgress = 100;
+    _lastOtaDraw = millis();
     _u8g2.clearBuffer();
     drawRuCentered("ГОТОВО", 14);
     _u8g2.setFont(u8g2_font_9x18_tr);
@@ -102,6 +120,8 @@ void OledDisplay::drawOTAComplete() {
 }
 
 void OledDisplay::drawOTAError() {
+    _lastOtaProgress = -1;
+    _lastOtaDraw = millis();
     _u8g2.clearBuffer();
     drawRuCentered("ОШИБКА", 14);
     drawRuCentered("ПОВТОРИТЕ", 34);
