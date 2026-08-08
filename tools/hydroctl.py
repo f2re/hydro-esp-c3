@@ -144,7 +144,8 @@ def command_install(args) -> None:
     if args.factory_wifi:
         say("Open http://hydro.local after the controller joins Wi-Fi")
     else:
-        say("First boot: connect to Wi-Fi 'HydroESP-Setup', then open http://192.168.4.1")
+        say("First boot: HydroESP-Setup is protected; read the KEY on OLED or Serial")
+        say("Then connect to HydroESP-Setup and open http://192.168.4.1")
 
 
 def command_monitor(args) -> None:
