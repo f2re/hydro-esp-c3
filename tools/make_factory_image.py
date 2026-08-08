@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a single flashable ESP32-C3 factory image from PlatformIO outputs."""
+"""Build a single flashable ESP32-C3 install image from PlatformIO outputs."""
 
 from __future__ import annotations
 
@@ -21,23 +21,35 @@ def first_existing(paths: list[Path]) -> Path | None:
     return None
 
 
-def locate_esptool() -> Path:
+def locate_esptool_command() -> list[str]:
+    """Return a runnable esptool command for old and new PlatformIO layouts."""
     explicit = os.environ.get("ESPTOOL")
     candidates: list[Path] = []
     if explicit:
         candidates.append(Path(explicit).expanduser())
-    executable = shutil.which("esptool")
-    if executable:
-        candidates.append(Path(executable))
+
+    for name in ("esptool", "esptool.py"):
+        executable = shutil.which(name)
+        if executable:
+            candidates.append(Path(executable))
+
     home = Path.home()
     candidates.extend([
         home / ".platformio" / "penv" / "bin" / "esptool",
         home / ".platformio" / "penv" / "Scripts" / "esptool.exe",
+        # pioarduino 53.x / esptool 4.x installs the script here.
+        home / ".platformio" / "packages" / "tool-esptoolpy" / "esptool.py",
+        # Some package variants expose a native entry point instead.
+        home / ".platformio" / "packages" / "tool-esptoolpy" / "esptool",
+        home / ".platformio" / "packages" / "tool-esptoolpy" / "esptool.exe",
     ])
+
     found = first_existing(candidates)
-    if found:
-        return found
-    raise SystemExit("esptool not found; run PlatformIO build/bootstrap first")
+    if not found:
+        raise SystemExit("esptool not found; run PlatformIO build/bootstrap first")
+    if found.suffix.lower() == ".py":
+        return [sys.executable, str(found)]
+    return [str(found)]
 
 
 def locate_boot_app0() -> Path:
@@ -58,19 +70,19 @@ def require(path: Path) -> Path:
 
 
 def build_factory(output: Path) -> None:
-    esptool = locate_esptool()
+    esptool = locate_esptool_command()
     bootloader = require(BUILD / "bootloader.bin")
     partitions = require(BUILD / "partitions.bin")
     firmware = require(BUILD / "firmware.bin")
     boot_app0 = locate_boot_app0()
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        str(esptool), "--chip", "esp32c3", "merge-bin",
+    cmd = esptool + [
+        "--chip", "esp32c3", "merge_bin",
         "-o", str(output),
-        "--flash-mode", "dio",
-        "--flash-freq", "80m",
-        "--flash-size", "4MB",
+        "--flash_mode", "dio",
+        "--flash_freq", "80m",
+        "--flash_size", "4MB",
         "0x0000", str(bootloader),
         "0x8000", str(partitions),
         "0xE000", str(boot_app0),
@@ -83,8 +95,8 @@ def build_factory(output: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create merged ESP32-C3 factory image")
-    parser.add_argument("output", nargs="?", default="dist/hydro-esp-c3-factory.bin")
+    parser = argparse.ArgumentParser(description="Create merged ESP32-C3 install image")
+    parser.add_argument("output", nargs="?", default="dist/hydro-esp-c3-install.bin")
     args = parser.parse_args()
     build_factory(Path(args.output).expanduser().resolve())
     return 0
