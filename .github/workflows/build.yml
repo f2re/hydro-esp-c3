@@ -38,6 +38,19 @@ jobs:
       - name: Export UI preview
         run: python tools/export_ui_preview.py .artifacts/ui-preview.html --mock
 
+      - name: Render UI screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          BASE="file://${GITHUB_WORKSPACE}/.artifacts/ui-preview.html"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
+            --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-overview.png "$BASE"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
+            --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-hydraulics.png "$BASE?tab=hydraulics"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
+            --window-size=390,844 --screenshot=.artifacts/ui-mobile-overview.png "$BASE"
+
       - name: Build ESP32-C3 firmware
         run: pio run
 
@@ -48,5 +61,8 @@ jobs:
           path: |
             .pio/build/esp32c3_supermini/firmware.bin
             .artifacts/ui-preview.html
+            .artifacts/ui-desktop-overview.png
+            .artifacts/ui-desktop-hydraulics.png
+            .artifacts/ui-mobile-overview.png
           if-no-files-found: error
           retention-days: 14
