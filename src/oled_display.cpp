@@ -55,6 +55,20 @@ void OledDisplay::drawBoot(uint8_t step, const char* msg) {
     _u8g2.sendBuffer();
 }
 
+void OledDisplay::drawOTA(int progress) {
+    _u8g2.clearBuffer();
+    _u8g2.setFont(u8g2_font_5x7_tr);
+    _u8g2.drawStr(x(2), y(8), "OTA UPDATE...");
+    hline(10);
+    
+    char buf[16];
+    snprintf(buf, sizeof(buf), "Flashing: %d%%", progress);
+    _u8g2.drawStr(x(1), y(20), buf);
+    
+    drawProgressBar(1, 28, 70, 6, (float)progress / 100.0f);
+    _u8g2.sendBuffer();
+}
+
 // ── Главный метод ротации ─────────────────────────────────────
 void OledDisplay::update(NTPManager* ntp,
                           RelayController* relay,

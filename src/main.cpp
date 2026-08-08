@@ -69,7 +69,7 @@ void setup() {
         oled.drawBoot(3, ntpMgr.isSynced() ? "NTP OK" : "NTP wait");
     }
 
-    webSrv.begin(&relay, &scheduler, &ntpMgr, &wifiMgr);
+    webSrv.begin(&relay, &scheduler, &ntpMgr, &wifiMgr, &oled);
     if (MDNS.begin("hydro")) {
         Serial.println("[mDNS] Responding at http://hydro.local");
     }

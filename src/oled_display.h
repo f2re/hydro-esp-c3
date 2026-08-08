@@ -21,6 +21,7 @@ class OledDisplay {
 public:
     void begin();
     void drawBoot(uint8_t step, const char* msg);
+    void drawOTA(int progress);
 
     // Главный метод — вызывать в loop(), сам управляет ротацией
     void update(NTPManager* ntp, RelayController* relay, WiFiManager* wifi);

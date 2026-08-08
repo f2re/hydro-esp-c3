@@ -37,7 +37,48 @@ String NTPManager::getDateString() const {
     return String(buf);
 }
 
+uint32_t NTPManager::getEpochTime() const {
+    return _client ? _client->getEpochTime() : 0;
+}
+
+void NTPManager::getSunriseSunset(float lat, float lon, float &sunrise, float &sunset) {
+    if (!_synced || lat == 0.0) { 
+        sunrise = 6.0; 
+        sunset = 18.0; 
+        return; 
+    }
+    
+    time_t rawtime = _client->getEpochTime();
+    struct tm * ti = localtime(&rawtime);
+    
+    int day = ti->tm_yday;
+    float latRad = lat * PI / 180.0;
+    float declination = 0.409 * sin(2.0 * PI * (day - 81) / 365.0);
+    float arg = -tan(latRad) * tan(declination);
+    
+    if (arg > 1.0) { // Polar night
+        sunrise = 0; sunset = 0; return;
+    } else if (arg < -1.0) { // Polar day
+        sunrise = 0; sunset = 24; return;
+    }
+    
+    float hourAngle = acos(arg);
+    float sunsetTime = 12.0 + hourAngle * 12.0 / PI;
+    float sunriseTime = 12.0 - hourAngle * 12.0 / PI;
+    
+    float lonCorrection = (lon - (15.0 * (float)_offset)) / 15.0;
+    
+    sunrise = sunriseTime - lonCorrection;
+    sunset = sunsetTime - lonCorrection;
+    
+    if (sunrise < 0) sunrise += 24;
+    if (sunrise >= 24) sunrise -= 24;
+    if (sunset < 0) sunset += 24;
+    if (sunset >= 24) sunset -= 24;
+}
+
 void NTPManager::setTimeOffset(int offset_hours) {
+    _offset = offset_hours;
     if (_client) _client->setTimeOffset(offset_hours * 3600);
 }
 

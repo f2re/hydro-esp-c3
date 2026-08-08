@@ -8,14 +8,18 @@ void ConfigStorage::load(Config &config) {
     config.wifi_ssid = prefs.getString("ssid", WIFI_SSID);
     config.wifi_pass = prefs.getString("pass", WIFI_PASSWORD);
     config.timezone_offset = prefs.getInt("tz", TIMEZONE_OFFSET);
+    config.latitude = prefs.getFloat("lat", 0.0);
+    config.longitude = prefs.getFloat("lon", 0.0);
+    config.last_solution_change = prefs.getUInt("sol_chg", 0);
     
-    config.schedule_count = prefs.getUChar("sched_cnt", SCHEDULE_COUNT);
+    config.schedule_count = prefs.getUChar("sched_cnt", 0);
     if (config.schedule_count > 48) config.schedule_count = 48;
 
     size_t len = prefs.getBytesLength("sched");
     if (len > 0 && len == config.schedule_count * sizeof(WateringSlot)) {
         prefs.getBytes("sched", config.schedule, len);
     } else {
+        // Загружаем дефолтное расписание, если нет сохраненного
         config.schedule_count = SCHEDULE_COUNT;
         for (int i = 0; i < SCHEDULE_COUNT; i++) {
             config.schedule[i] = WATERING_SCHEDULE[i];
@@ -27,6 +31,9 @@ void ConfigStorage::save(const Config &config) {
     prefs.putString("ssid", config.wifi_ssid);
     prefs.putString("pass", config.wifi_pass);
     prefs.putInt("tz", config.timezone_offset);
+    prefs.putFloat("lat", config.latitude);
+    prefs.putFloat("lon", config.longitude);
+    prefs.putUInt("sol_chg", config.last_solution_change);
     prefs.putUChar("sched_cnt", config.schedule_count);
     prefs.putBytes("sched", config.schedule, config.schedule_count * sizeof(WateringSlot));
 }
