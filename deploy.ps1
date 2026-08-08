@@ -1,12 +1,16 @@
-param(
-    [switch]$Pull,
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$HydroArgs
-)
-
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Python = if (Get-Command py -ErrorAction SilentlyContinue) { "py" } else { "python" }
+
+$Pull = $false
+$HydroArgs = @()
+foreach ($Arg in $args) {
+    if ($Arg -eq "-Pull" -or $Arg -eq "--pull") {
+        $Pull = $true
+    } else {
+        $HydroArgs += $Arg
+    }
+}
 
 if ($Pull) {
     $Changes = & git -C $Root status --porcelain
