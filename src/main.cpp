@@ -14,6 +14,7 @@
 #include <ESPmDNS.h>
 #include "web_server.h"
 #include "recovery_ota.h"
+#include "ota_manager.h"
 
 WiFiManager      wifiMgr;
 NTPManager       ntpMgr;
@@ -181,14 +182,29 @@ void setup() {
 }
 
 void loop() {
-    if (wifiMgr.isAPMode()) {
-        wifiMgr.updateDNS();
-    } else {
-        wifiMgr.ensureConnected(appConfig.wifi_ssid.c_str(), appConfig.wifi_pass.c_str());
+    // Do ordinary connection maintenance only outside an active flash. During
+    // OTA, reconnect attempts or other application work only add jitter and can
+    // interfere with the transfer.
+    if (!otaManager.isUpdating()) {
+        if (wifiMgr.isAPMode()) {
+            wifiMgr.updateDNS();
+        } else {
+            wifiMgr.ensureConnected(appConfig.wifi_ssid.c_str(), appConfig.wifi_pass.c_str());
+        }
     }
 
     // Keep the recovery firmware channel serviced independently of Web UI.
+    // ArduinoOTA.handle() can transition otaManager into the updating state.
     recoveryOTA.handle();
+
+    if (otaManager.isUpdating()) {
+        // OTA callbacks own the progress screen. Do not run the scheduler,
+        // button logic, normal OLED pages or periodic status output on top of
+        // them. The relay is forced OFF by both OTA entry paths.
+        digitalWrite(LED_PIN, LOW);
+        delay(10);
+        return;
+    }
 
     ntpMgr.update();
     relay.update();

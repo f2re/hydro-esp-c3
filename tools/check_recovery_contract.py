@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static regression checks for deploy neutrality and Web-independent recovery OTA."""
+"""Static regression checks for deploy neutrality and reliable Wi-Fi OTA."""
 
 from pathlib import Path
 
@@ -27,13 +27,33 @@ require("wifi-flash.ps1", "tools\\wifi_flash.py")
 
 require("tools/usb_deploy.py", '"WIFI_SEED_ID"')
 require("tools/usb_deploy.py", "env.pop(key, None)")
+
+# Normal Wi-Fi updates use the already-running HTTP server because it is the
+# most interoperable path across macOS/Linux/Windows LANs. Port 3232 remains a
+# Web-independent fallback when HTTP itself is unavailable.
 require("tools/wifi_flash.py", "DEFAULT_OTA_PORT = 3232")
+require("tools/wifi_flash.py", "DEFAULT_OTA_TIMEOUT = 3")
 require("tools/wifi_flash.py", '"/ota/upload"')
-require("tools/wifi_flash.py", "building recovery-safe firmware without Wi-Fi provisioning flags")
+require("tools/wifi_flash.py", '"/api/status"')
+require("tools/wifi_flash.py", "OTA verified:")
+require("tools/wifi_flash.py", "wait_for_reboot")
+require("tools/wifi_flash.py", "--recovery-first")
+require("tools/wifi_flash.py", "stdout=subprocess.PIPE")
+require("tools/wifi_flash.py", "building OTA-safe firmware without Wi-Fi provisioning flags")
+forbid("tools/wifi_flash.py", "recovery OTA unavailable:")
+
+# Firmware keeps the independent ArduinoOTA channel and services it continuously.
 require("src/main.cpp", "recoveryOTA.begin")
 require("src/main.cpp", "recoveryOTA.handle")
 require("src/recovery_ota.cpp", "ArduinoOTA.setMdnsEnabled(false)")
 require("src/recovery_ota.cpp", "ArduinoOTA.begin()")
 require("src/recovery_ota.cpp", "ArduinoOTA.handle()")
 
-print("recovery/deploy contract: OK")
+# Once flashing starts, the ordinary application loop must not redraw regular
+# OLED pages, run the watering scheduler or accept the physical start button.
+require("src/main.cpp", "if (otaManager.isUpdating())")
+require("src/main.cpp", "OTA callbacks own the progress screen")
+require("src/ota_manager.cpp", "Keep the OTA latch active until ESP.restart()")
+require("src/ota_manager.cpp", "if (!updating || total == 0) return;")
+
+print("recovery/deploy contract: OK (HTTP-first verified OTA + port-3232 fallback + stable OTA UI)")
