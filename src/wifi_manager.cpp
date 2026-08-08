@@ -6,6 +6,7 @@ bool WiFiManager::connect(const char* ssid, const char* pass, uint32_t timeout_m
 
     Serial.printf("[WiFi] Connecting to %s", ssid);
     WiFi.mode(WIFI_STA);
+    WiFi.setHostname(MDNS_HOST);
     WiFi.begin(ssid, pass);
 
     const uint32_t start = millis();
@@ -39,6 +40,7 @@ void WiFiManager::ensureConnected(const char* ssid, const char* pass) {
 
     Serial.printf("[WiFi] Background reconnect to %s\n", ssid);
     WiFi.mode(WIFI_STA);
+    WiFi.setHostname(MDNS_HOST);
     WiFi.disconnect(false);
     WiFi.begin(ssid, pass);
 }
