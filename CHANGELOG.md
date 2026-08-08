@@ -12,31 +12,32 @@
 - серийная hydraulic calibration;
 - `hydroctl` для install/doctor/status/pause/resume/backup/restore/update;
 - numeric Web IP на OLED/Serial;
-- единый `hydro-esp-c3-install.bin` для ручной чистой прошивки;
+- единый `hydro-esp-c3-install.bin` для ручной recovery/factory прошивки;
 - visual README и воспроизводимые UI screenshots.
 
 ### Changed
 
-- первичная установка упрощена до `install → HydroESP-Setup → 192.168.4.1 → домашний Wi‑Fi`;
+- setup новой платы упрощён до `HydroESP-Setup → 192.168.4.1 → домашний Wi‑Fi`;
 - `HydroESP-Setup` снова открытая сеть без device key и дополнительных паролей;
-- `install` по умолчанию очищает старую NVS-конфигурацию для предсказуемого first boot;
-- `install --keep-settings` оставлен только как явный advanced сценарий;
+- обычный USB `install` теперь не выполняет erase flash/NVS и сохраняет существующие настройки;
+- ранее настроенная плата после reinstall сразу возвращается в сохранённую LAN, а numeric IP показывается на OLED/Serial;
 - `update` сохраняет Wi‑Fi, расписание и калибровку;
 - HTTP стартует до NTP и не зависит от доступа к Интернету;
-- release/build по-прежнему проверяют корректный flash layout, но технические детали скрыты от обычной установки.
+- release/build проверяют корректный flash layout, но технические детали скрыты от обычной установки.
 
 ### Removed
 
 - `SecurityManager`;
 - commissioning/operator key;
 - отдельный `hydrosec` credential flow;
-- необходимость искать key на OLED/Serial при первой установке.
+- необходимость искать key на OLED/Serial при первой установке;
+- автоматический erase/reset настроек из обычного `install`.
 
 ### Fixed
 
 - конфликт OTA metadata / `boot_app0` в старом flash layout;
 - возможность принять application `firmware.bin` за полный install image;
-- потеря Web UI из-за сохранённого старого SSID после «первичной» установки;
+- неоднозначность адреса Web UI: полный IP теперь виден на OLED/Serial;
 - зависимость setup Web UI от NTP;
 - рассинхронизация OLED/Serial с runtime schedule;
 - догоняющий schedule-cycle после manual overlap/resume;
@@ -52,5 +53,6 @@
 ## Перед стабильным release
 
 1. зелёный CI на `main`;
-2. USB install → открытая `HydroESP-Setup` → Wi‑Fi setup → schedule → calibration → OTA smoke-test;
-3. проверка реальной силовой части насоса.
+2. USB install новой платы → открытая `HydroESP-Setup` → Wi‑Fi setup → schedule → calibration → OTA smoke-test;
+3. USB reinstall настроенной платы → сохранение Wi‑Fi/расписания;
+4. проверка реальной силовой части насоса.
