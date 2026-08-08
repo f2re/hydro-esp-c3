@@ -11,7 +11,6 @@
 #include "status_display.h"
 #include "oled_display.h"
 #include "config_storage.h"
-#include "security_manager.h"
 #include <ESPmDNS.h>
 #include "web_server.h"
 
@@ -38,7 +37,6 @@ bool buttonStable = HIGH;
 bool buttonActionDone = false;
 bool buttonArmed = false;
 Config appConfig;
-String commissioningKey;
 
 void updatePhysicalButton() {
     const bool raw = digitalRead(BUTTON_PIN);
@@ -96,7 +94,6 @@ void setup() {
 
     configStorage.begin();
     configStorage.load(appConfig);
-    securityManager.begin();
     eventLog.begin(&ntpMgr);
 
     oled.begin();
@@ -118,14 +115,12 @@ void setup() {
     );
 
     if (!wifiOk) {
-        commissioningKey = securityManager.operatorKey();
-        Serial.printf("[SEC] Setup Wi-Fi: %s\n", AP_SSID);
-        Serial.printf("[SEC] Setup key: %s\n", commissioningKey.c_str());
-        Serial.println("[SEC] Setup URL: http://192.168.4.1");
+        Serial.printf("[SETUP] Wi-Fi: %s (open, no password)\n", AP_SSID);
+        Serial.println("[SETUP] Open: http://192.168.4.1");
 
-        if (wifiMgr.startAP(AP_SSID, commissioningKey.c_str())) {
-            serial.printBootStep("🔐", "Setup AP", true, AP_SSID);
-            oled.drawProvisioning(AP_SSID, commissioningKey, wifiMgr.localIP());
+        if (wifiMgr.startAP(AP_SSID)) {
+            serial.printBootStep("📡", "Setup AP", true, AP_SSID);
+            oled.drawProvisioning(AP_SSID, wifiMgr.localIP());
         } else {
             serial.printBootStep("⚠️", "Setup AP", false, "start failed");
             oled.drawBoot(2, "AP failed");
@@ -135,8 +130,8 @@ void setup() {
         oled.drawBoot(2, "WiFi OK");
     }
 
-    // The operator UI must become reachable as soon as networking is ready.
-    // NTP is optional for opening the site and must never delay provisioning.
+    // The web UI is the primary setup tool. Bring it up immediately after
+    // networking is ready; internet access and NTP are not prerequisites.
     webSrv.begin(&relay, &scheduler, &ntpMgr, &wifiMgr, &oled);
     if (wifiOk || wifiMgr.isAPMode()) {
         Serial.printf("[WEB] Open: http://%s/\n", wifiMgr.localIP().c_str());
@@ -188,7 +183,7 @@ void loop() {
     if (static_cast<uint32_t>(now - lastOled) >= OLED_INTERVAL_MS) {
         lastOled = now;
         if (wifiMgr.isAPMode()) {
-            oled.drawProvisioning(AP_SSID, commissioningKey, wifiMgr.localIP());
+            oled.drawProvisioning(AP_SSID, wifiMgr.localIP());
         } else {
             oled.update(&ntpMgr, &relay, &wifiMgr, &scheduler);
         }
