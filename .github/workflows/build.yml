@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile tools/hydroctl.py tools/usb_deploy.py tools/wifi_flash.py tools/check_recovery_contract.py tools/check_install_wifi.py tools/check_hardware_baseline.py tools/check_web_ui.py tools/check_web_assets.py tools/export_ui_preview.py tools/make_factory_image.py scripts/build_flags.py
+          python -m py_compile tools/hydroctl.py tools/usb_deploy.py tools/wifi_flash.py tools/check_recovery_contract.py tools/check_install_wifi.py tools/check_hardware_baseline.py tools/check_web_ui.py tools/check_web_assets.py tools/check_schedule_builder.py tools/export_ui_preview.py tools/make_factory_image.py scripts/build_flags.py
           python tools/hydroctl.py --help >/dev/null
           python tools/hydroctl.py install --help >/dev/null
           python tools/usb_deploy.py --help >/dev/null
@@ -57,13 +57,16 @@ jobs:
           python tools/make_factory_image.py --help >/dev/null
           sh -n install.sh update.sh deploy.sh wifi-flash.sh
 
-      - name: Check embedded web UI and assets
+      - name: Check embedded web UI, assets and schedule builder
         run: |
           python tools/check_web_ui.py
           python tools/check_web_assets.py
+          python tools/check_schedule_builder.py
 
-      - name: Export UI preview
-        run: python tools/export_ui_preview.py .artifacts/ui-preview.html --mock
+      - name: Export UI previews
+        run: |
+          python tools/export_ui_preview.py .artifacts/ui-preview.html --mock
+          python tools/export_ui_preview.py .artifacts/ui-preview-schedule.html --mock --tab schedule
 
       - name: Render UI screenshots
         shell: bash
@@ -71,12 +74,17 @@ jobs:
           set -euo pipefail
           CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
           BASE="file://${GITHUB_WORKSPACE}/.artifacts/ui-preview.html"
+          SCHEDULE="file://${GITHUB_WORKSPACE}/.artifacts/ui-preview-schedule.html"
           "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
             --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-overview.png "$BASE"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
+            --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-schedule.png "$SCHEDULE"
           "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
             --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-hydraulics.png "$BASE?tab=hydraulics"
           "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
             --window-size=390,844 --screenshot=.artifacts/ui-mobile-overview.png "$BASE"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
+            --window-size=390,844 --screenshot=.artifacts/ui-mobile-schedule.png "$SCHEDULE"
 
       - name: Build ESP32-C3 firmware
         run: pio run
@@ -92,8 +100,11 @@ jobs:
             .pio/build/esp32c3_supermini/firmware.bin
             .artifacts/hydro-esp-c3-install.bin
             .artifacts/ui-preview.html
+            .artifacts/ui-preview-schedule.html
             .artifacts/ui-desktop-overview.png
+            .artifacts/ui-desktop-schedule.png
             .artifacts/ui-desktop-hydraulics.png
             .artifacts/ui-mobile-overview.png
+            .artifacts/ui-mobile-schedule.png
           if-no-files-found: error
           retention-days: 14

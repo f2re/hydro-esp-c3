@@ -9,6 +9,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src/web_ui_v2.h"
 
+TAB_META = {
+    "status": ("Обзор", "Состояние установки и безопасное ручное управление"),
+    "schedule": ("Расписание", "Циклы полива и суточная нагрузка насоса"),
+    "hydraulics": ("Гидравлика", "Повторяемая калибровка фактического расхода и инженерный расчёт"),
+    "system": ("Система", "Сеть, журнал, диагностика и резервное копирование"),
+    "ota": ("Прошивка", "Локальное OTA-обновление контроллера"),
+}
+
 MOCK = {
     "/api/status": {
         "api_version": 3,
@@ -121,19 +129,73 @@ window.fetch=async function(input,options={{}}){{
 </script>"""
 
 
+def select_initial_tab(html: str, tab: str | None) -> str:
+    if not tab:
+        return html
+    if tab not in TAB_META:
+        raise SystemExit(f"unknown preview tab: {tab}")
+
+    def section_repl(match: re.Match[str]) -> str:
+        name = match.group(1)
+        active = " active" if name == tab else ""
+        return f'<section class="tab{active}" id="tab-{name}">'
+
+    html = re.sub(
+        r'<section class="tab(?: active)?" id="tab-([a-z]+)">',
+        section_repl,
+        html,
+    )
+
+    def nav_repl(match: re.Match[str]) -> str:
+        name = match.group(1)
+        active = " active" if name == tab else ""
+        return f'<button class="nav-btn{active}" data-tab="{name}">'
+
+    html = re.sub(
+        r'<button class="nav-btn(?: active)?" data-tab="([a-z]+)">',
+        nav_repl,
+        html,
+    )
+
+    title, subtitle = TAB_META[tab]
+    html = re.sub(
+        r'(<div class="page-title" id="page-title">).*?(</div>)',
+        rf'\1{title}\2',
+        html,
+        count=1,
+    )
+    html = re.sub(
+        r'(<div class="page-subtitle" id="page-subtitle">).*?(</div>)',
+        rf'\1{subtitle}\2',
+        html,
+        count=1,
+    )
+    html = html.replace("let activeTab='status'", f"let activeTab='{tab}'", 1)
+    if tab == "schedule":
+        html = html.replace(
+            "updateStatus();loadEvents();setInterval(",
+            "loadSchedule();updateStatus();loadEvents();setInterval(",
+            1,
+        )
+    return html
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("output", nargs="?", default="ui-preview.html")
     parser.add_argument("--mock", action="store_true")
+    parser.add_argument("--tab", choices=sorted(TAB_META))
     args = parser.parse_args()
 
     html = extract_html()
+    html = select_initial_tab(html, args.tab)
     if args.mock:
         html = html.replace("<script>", mock_script() + "\n<script>", 1)
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(html, encoding="utf-8")
-    print(f"wrote {target} ({len(html)} bytes)")
+    suffix = f", tab={args.tab}" if args.tab else ""
+    print(f"wrote {target} ({len(html)} bytes{suffix})")
 
 
 if __name__ == "__main__":
