@@ -46,12 +46,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile tools/hydroctl.py tools/usb_deploy.py tools/wifi_flash.py tools/check_recovery_contract.py tools/check_install_wifi.py tools/check_hardware_baseline.py tools/check_web_ui.py tools/check_web_assets.py tools/check_schedule_builder.py tools/export_ui_preview.py tools/make_factory_image.py scripts/build_flags.py
+          python -m py_compile \
+            tools/hydroctl.py tools/usb_deploy.py tools/wifi_flash.py \
+            tools/check_recovery_contract.py tools/check_display_contract.py \
+            tools/check_build_cache_contract.py tools/check_install_wifi.py \
+            tools/check_hardware_baseline.py tools/check_web_ui.py \
+            tools/check_web_assets.py tools/check_schedule_builder.py \
+            tools/export_ui_preview.py tools/make_factory_image.py scripts/build_flags.py
           python tools/hydroctl.py --help >/dev/null
           python tools/hydroctl.py install --help >/dev/null
           python tools/usb_deploy.py --help >/dev/null
           python tools/wifi_flash.py --help >/dev/null
           python tools/check_recovery_contract.py
+          python tools/check_display_contract.py
+          python tools/check_build_cache_contract.py
           python tools/check_install_wifi.py
           python tools/check_hardware_baseline.py
           python tools/make_factory_image.py --help >/dev/null
@@ -88,6 +96,25 @@ jobs:
 
       - name: Build ESP32-C3 firmware
         run: pio run
+
+      - name: Verify build identity stays incremental
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL_SHA="${GITHUB_SHA}"
+
+          GITHUB_SHA=0000000000000000000000000000000000000000 pio run 2>&1 | tee /tmp/hydro-meta-fake.log
+          if grep -qE "Compiling .*FrameworkArduino/" /tmp/hydro-meta-fake.log; then
+            echo "ERROR: changing only build identity rebuilt FrameworkArduino" >&2
+            exit 1
+          fi
+
+          GITHUB_SHA="${ACTUAL_SHA}" pio run 2>&1 | tee /tmp/hydro-meta-restore.log
+          if grep -qE "Compiling .*FrameworkArduino/" /tmp/hydro-meta-restore.log; then
+            echo "ERROR: restoring build identity rebuilt FrameworkArduino" >&2
+            exit 1
+          fi
+          echo "incremental build identity: OK"
 
       - name: Build install image
         run: python tools/make_factory_image.py .artifacts/hydro-esp-c3-install.bin

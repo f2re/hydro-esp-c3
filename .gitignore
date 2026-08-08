@@ -20,6 +20,9 @@ __pycache__/
 .env
 *.local
 
+# Generated build identity (changes per commit, intentionally untracked)
+src/generated_build_info.h
+
 # Maintenance outputs
 dist/
 hydroesp-backup*.json

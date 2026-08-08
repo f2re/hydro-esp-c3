@@ -23,6 +23,8 @@ public:
     void begin();
     void drawBoot(uint8_t step, const char* msg);
     void drawOTA(uint8_t progress);
+    void drawOTAComplete();
+    void drawOTAError();
     void drawProvisioning(const String& ssid, const String& ip);
     void update(NTPManager* ntp, RelayController* relay,
                 WiFiManager* wifi, Scheduler* scheduler);
@@ -37,6 +39,8 @@ private:
     uint32_t _lastSwitch = 0;
     uint8_t _animFrame = 0;
     uint32_t _lastAnim = 0;
+    int16_t _lastOtaProgress = -1;
+    uint32_t _lastOtaDraw = 0;
 
     inline int x(int localX) const { return localX + X_OFFSET; }
     inline int y(int localY) const { return localY + Y_OFFSET; }
@@ -44,6 +48,7 @@ private:
     void hline(int localY);
     void drawProgressBar(int localX, int localY, int w, int h, float pct);
     void drawWifiIcon(int px, int py, bool connected, int rssi);
+    void drawRuCentered(const char* text, int localBaseline);
 
     void drawPageClock(NTPManager* ntp, WiFiManager* wifi);
     void drawPageNetwork(WiFiManager* wifi);

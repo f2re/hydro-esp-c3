@@ -2,6 +2,22 @@
 #include "version.h"
 #include <WiFi.h>
 
+namespace {
+const char* bootMessageRu(const char* msg) {
+    if (!msg) return "ЗАПУСК";
+    if (strcmp(msg, "Boot...") == 0) return "ЗАПУСК";
+    if (strcmp(msg, "Init...") == 0) return "ИНИЦ.";
+    if (strcmp(msg, "WiFi...") == 0) return "Wi-Fi";
+    if (strcmp(msg, "WiFi OK") == 0) return "Wi-Fi OK";
+    if (strcmp(msg, "AP failed") == 0) return "ОШИБКА AP";
+    if (strcmp(msg, "NTP...") == 0) return "ВРЕМЯ";
+    if (strcmp(msg, "NTP OK") == 0) return "ВРЕМЯ OK";
+    if (strcmp(msg, "NTP wait") == 0) return "ЖДЕМ NTP";
+    if (strcmp(msg, "Ready!") == 0) return "ГОТОВО";
+    return msg;
+}
+}
+
 void OledDisplay::begin() {
     Wire.begin(OLED_SDA, OLED_SCL);
     _u8g2.begin();
@@ -40,35 +56,75 @@ void OledDisplay::drawWifiIcon(int px, int py, bool connected, int rssi) {
     if (bars >= 3) _u8g2.drawHLine(px, py + 1, 7);
 }
 
+void OledDisplay::drawRuCentered(const char* text, int localBaseline) {
+    _u8g2.setFont(u8g2_font_unifont_t_cyrillic);
+    const int width = _u8g2.getUTF8Width(text);
+    const int localX = width < OLED_WIDTH ? (OLED_WIDTH - width) / 2 : 0;
+    _u8g2.drawUTF8(x(localX), y(localBaseline), text);
+}
+
 void OledDisplay::drawBoot(uint8_t step, const char* msg) {
     _u8g2.clearBuffer();
-    _u8g2.setFont(u8g2_font_5x7_tr);
-    _u8g2.drawStr(x(1), y(7), "HydroESP-C3");
+    _u8g2.setFont(u8g2_font_4x6_tr);
+    _u8g2.drawStr(x(1), y(6), "HydroESP");
 
     String version = HYDRO_VERSION;
-    if (version.length() > 11) version = version.substring(0, 11);
-    _u8g2.setFont(u8g2_font_4x6_tr);
-    _u8g2.drawStr(x(45), y(7), version.c_str());
-    hline(10);
+    if (version.length() > 8) version = version.substring(0, 8);
+    _u8g2.drawStr(x(39), y(6), version.c_str());
+    hline(8);
 
-    char line[24];
-    snprintf(line, sizeof(line), "%u/4 %s", step, msg);
-    _u8g2.setFont(u8g2_font_5x7_tr);
-    _u8g2.drawStr(x(1), y(21), line);
-    drawProgressBar(1, 29, 70, 6, static_cast<float>(step) / 4.0f);
+    drawRuCentered(bootMessageRu(msg), 24);
+    drawProgressBar(1, 32, 70, 6, static_cast<float>(step) / 4.0f);
     _u8g2.sendBuffer();
 }
 
 void OledDisplay::drawOTA(uint8_t progress) {
-    _u8g2.clearBuffer();
-    _u8g2.setFont(u8g2_font_5x7_tr);
-    _u8g2.drawStr(x(2), y(8), "OTA UPDATE...");
-    hline(10);
+    const uint32_t now = millis();
+    if (progress > 100) progress = 100;
 
-    char line[20];
-    snprintf(line, sizeof(line), "Flashing: %u%%", progress);
-    _u8g2.drawStr(x(1), y(20), line);
-    drawProgressBar(1, 28, 70, 6, static_cast<float>(progress) / 100.0f);
+    // OTA callbacks can arrive much faster than a 400 kHz I2C full-buffer OLED
+    // can usefully refresh. Redraw only on visible progress change or at a
+    // modest time cadence; 0 and 100 are always rendered immediately.
+    if (progress != 0 && progress != 100 && _lastOtaProgress >= 0) {
+        const int delta = abs(static_cast<int>(progress) - _lastOtaProgress);
+        if ((delta < 2 && static_cast<uint32_t>(now - _lastOtaDraw) < 250U) ||
+            (delta == 0 && static_cast<uint32_t>(now - _lastOtaDraw) < 500U)) {
+            return;
+        }
+    }
+    _lastOtaProgress = progress;
+    _lastOtaDraw = now;
+
+    _u8g2.clearBuffer();
+    drawRuCentered("ПРОШИВКА", 14);
+
+    char line[8];
+    snprintf(line, sizeof(line), "%u%%", progress);
+    _u8g2.setFont(u8g2_font_9x18_tr);
+    const int width = _u8g2.getStrWidth(line);
+    _u8g2.drawStr(x((OLED_WIDTH - width) / 2), y(31), line);
+    drawProgressBar(1, 35, 70, 5, static_cast<float>(progress) / 100.0f);
+    _u8g2.sendBuffer();
+}
+
+void OledDisplay::drawOTAComplete() {
+    _lastOtaProgress = 100;
+    _lastOtaDraw = millis();
+    _u8g2.clearBuffer();
+    drawRuCentered("ГОТОВО", 14);
+    _u8g2.setFont(u8g2_font_9x18_tr);
+    const char* done = "100%";
+    const int width = _u8g2.getStrWidth(done);
+    _u8g2.drawStr(x((OLED_WIDTH - width) / 2), y(34), done);
+    _u8g2.sendBuffer();
+}
+
+void OledDisplay::drawOTAError() {
+    _lastOtaProgress = -1;
+    _lastOtaDraw = millis();
+    _u8g2.clearBuffer();
+    drawRuCentered("ОШИБКА", 14);
+    drawRuCentered("ПОВТОРИТЕ", 34);
     _u8g2.sendBuffer();
 }
 
@@ -125,7 +181,7 @@ void OledDisplay::drawPageClock(NTPManager* ntp, WiFiManager* wifi) {
         _u8g2.drawStr(x(10), y(31), line);
     } else {
         drawWifiIcon(x(1), y(24), false, -100);
-        _u8g2.drawStr(x(10), y(31), "WiFi reconnect");
+        _u8g2.drawStr(x(10), y(31), "Wi-Fi --");
     }
 
     if (!ntp->isSynced() && (_animFrame % 2 == 0)) {
@@ -137,31 +193,37 @@ void OledDisplay::drawPageClock(NTPManager* ntp, WiFiManager* wifi) {
 
 void OledDisplay::drawPageNetwork(WiFiManager* wifi) {
     _u8g2.clearBuffer();
-    _u8g2.setFont(u8g2_font_5x7_tr);
-    _u8g2.drawStr(x(1), y(7), "WEB ADDRESS");
-    hline(10);
+    drawRuCentered("САЙТ", 13);
+    hline(16);
 
-    _u8g2.setFont(u8g2_font_4x6_tr);
     if (wifi->isConnected()) {
+        _u8g2.setFont(u8g2_font_5x7_tr);
         const String ip = wifi->localIP();
-        _u8g2.drawStr(x(1), y(19), "OPEN IN BROWSER");
-        _u8g2.drawStr(x(1), y(27), ip.c_str());
-        _u8g2.drawStr(x(1), y(35), "or hydro.local");
+        const int ipWidth = _u8g2.getStrWidth(ip.c_str());
+        _u8g2.drawStr(x((OLED_WIDTH - ipWidth) / 2), y(27), ip.c_str());
+        _u8g2.setFont(u8g2_font_4x6_tr);
+        const char* host = "hydro.local";
+        const int hostWidth = _u8g2.getStrWidth(host);
+        _u8g2.drawStr(x((OLED_WIDTH - hostWidth) / 2), y(37), host);
     } else {
-        _u8g2.drawStr(x(1), y(21), "WiFi offline");
-        _u8g2.drawStr(x(1), y(31), "check Serial");
+        drawRuCentered("НЕТ Wi-Fi", 34);
     }
     _u8g2.sendBuffer();
 }
 
 void OledDisplay::drawPageNext(NTPManager* ntp, Scheduler* scheduler) {
     _u8g2.clearBuffer();
-    _u8g2.setFont(u8g2_font_5x7_tr);
-    _u8g2.drawStr(x(1), y(7), "NEXT WATERING");
-    hline(10);
+
+    if (!scheduler->isEnabled()) {
+        drawRuCentered("АВТОПОЛИВ", 14);
+        drawRuCentered("ПАУЗА", 34);
+        _u8g2.sendBuffer();
+        return;
+    }
 
     if (!ntp->isSynced()) {
-        _u8g2.drawStr(x(11), y(25), "WAIT FOR NTP");
+        drawRuCentered("СЛЕД.", 14);
+        drawRuCentered("НЕТ NTP", 34);
         _u8g2.sendBuffer();
         return;
     }
@@ -169,46 +231,43 @@ void OledDisplay::drawPageNext(NTPManager* ntp, Scheduler* scheduler) {
     WateringSlot slot {};
     int minutes = 0;
     if (!scheduler->getNextSlot(slot, minutes)) {
-        _u8g2.drawStr(x(9), y(25), "NO SCHEDULE");
+        drawRuCentered("СЛЕД.", 14);
+        drawRuCentered("НЕТ ПЛАНА", 34);
         _u8g2.sendBuffer();
         return;
     }
 
+    drawRuCentered("СЛЕД.", 12);
+
     char timeStr[6];
     snprintf(timeStr, sizeof(timeStr), "%02u:%02u", slot.hour, slot.minute);
     _u8g2.setFont(u8g2_font_9x18_tr);
-    _u8g2.drawStr(x(13), y(28), timeStr);
+    _u8g2.drawStr(x(13), y(30), timeStr);
 
-    const String fullTime = ntp->getTimeString();
-    const int seconds = fullTime.length() >= 8 ? fullTime.substring(6, 8).toInt() : 0;
-    long remaining = static_cast<long>(minutes) * 60L - seconds;
-    if (remaining < 0) remaining += 86400L;
-
-    const int hours = remaining / 3600;
-    const int mins = (remaining % 3600) / 60;
     char bottom[24];
-    if (hours > 0) {
-        snprintf(bottom, sizeof(bottom), "in %dh%02dm  %us", hours, mins, slot.duration_sec);
+    if (minutes >= 60) {
+        snprintf(bottom, sizeof(bottom), "+%d:%02d   %us",
+                 minutes / 60, minutes % 60, slot.duration_sec);
     } else {
-        snprintf(bottom, sizeof(bottom), "in %dm  dur %us", mins, slot.duration_sec);
+        snprintf(bottom, sizeof(bottom), "+%dmin   %us", minutes, slot.duration_sec);
     }
     _u8g2.setFont(u8g2_font_4x6_tr);
-    _u8g2.drawStr(x(1), y(38), bottom);
+    _u8g2.drawStr(x(1), y(39), bottom);
     _u8g2.sendBuffer();
 }
 
 void OledDisplay::drawPageSchedule(NTPManager* ntp, Scheduler* scheduler) {
     _u8g2.clearBuffer();
-    _u8g2.setFont(u8g2_font_4x6_tr);
-    _u8g2.drawStr(x(1), y(6), "SCHEDULE");
+    drawRuCentered("ПЛАН", 10);
 
-    char countLine[10];
-    snprintf(countLine, sizeof(countLine), "%u slots", scheduler->count());
-    _u8g2.drawStr(x(43), y(6), countLine);
-    hline(8);
+    char countLine[5];
+    snprintf(countLine, sizeof(countLine), "%u", scheduler->count());
+    _u8g2.setFont(u8g2_font_4x6_tr);
+    _u8g2.drawStr(x(61), y(6), countLine);
+    hline(12);
 
     if (scheduler->count() == 0) {
-        _u8g2.drawStr(x(12), y(24), "NO SCHEDULE");
+        drawRuCentered("НЕТ ПЛАНА", 34);
         _u8g2.sendBuffer();
         return;
     }
@@ -227,6 +286,7 @@ void OledDisplay::drawPageSchedule(NTPManager* ntp, Scheduler* scheduler) {
         }
     }
 
+    _u8g2.setFont(u8g2_font_4x6_tr);
     const uint8_t rows = scheduler->count() < 4 ? scheduler->count() : 4;
     for (uint8_t rowIndex = 0; rowIndex < rows; ++rowIndex) {
         const uint8_t index = (firstIndex + rowIndex) % scheduler->count();
@@ -238,8 +298,8 @@ void OledDisplay::drawPageSchedule(NTPManager* ntp, Scheduler* scheduler) {
                  rowIndex == 0 ? '>' : ' ',
                  slot.hour, slot.minute, slot.duration_sec);
 
-        const int row = 15 + rowIndex * 7;
-        if (rowIndex == 0 && ntp->isSynced()) {
+        const int row = 19 + rowIndex * 7;
+        if (rowIndex == 0 && ntp->isSynced() && scheduler->isEnabled()) {
             _u8g2.setDrawColor(1);
             _u8g2.drawBox(x(0), y(row - 6), OLED_WIDTH, 7);
             _u8g2.setDrawColor(0);
@@ -255,21 +315,16 @@ void OledDisplay::drawPageSchedule(NTPManager* ntp, Scheduler* scheduler) {
 
 void OledDisplay::drawPageWatering(RelayController* relay) {
     _u8g2.clearBuffer();
-    _u8g2.setFont(u8g2_font_7x13_tr);
-    _u8g2.drawStr(x(1), y(13), "WATERING");
-    if (_animFrame % 2 == 0) hline(14);
+    drawRuCentered("ПОЛИВ", 13);
 
     const uint16_t remaining = relay->remainingSec();
     char remStr[8];
-    snprintf(remStr, sizeof(remStr), "%us", remaining);
+    snprintf(remStr, sizeof(remStr), "%u c", remaining);
     _u8g2.setFont(u8g2_font_9x18_tr);
-    const int width = strlen(remStr) * 9;
-    _u8g2.drawStr(x((72 - width) / 2), y(30), remStr);
+    const int width = _u8g2.getStrWidth(remStr);
+    _u8g2.drawStr(x((OLED_WIDTH - width) / 2), y(31), remStr);
 
     const float pct = relay->progress();
-    if (pct >= 0.0f) drawProgressBar(1, 33, 70, 5, pct);
-
-    const int dropY = y(18) + (_animFrame * 2);
-    _u8g2.drawCircle(x(63), dropY, 2);
+    if (pct >= 0.0f) drawProgressBar(1, 35, 70, 5, pct);
     _u8g2.sendBuffer();
 }

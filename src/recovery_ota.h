@@ -1,8 +1,12 @@
 #pragma once
 
+#include <Arduino.h>
+
 #include "relay_controller.h"
 #include "wifi_manager.h"
 #include "oled_display.h"
+
+constexpr uint16_t RECOVERY_OTA_PORT = 3232;
 
 class RecoveryOTA {
 public:
