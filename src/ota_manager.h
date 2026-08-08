@@ -5,14 +5,16 @@
 class OTAManager {
 public:
     void begin();
-    int getProgress() { return progress; }
-    bool isUpdating() { return updating; }
+    int getProgress() const { return progress; }
+    bool isUpdating() const { return updating; }
     void setProgress(size_t current, size_t total);
     void end(bool success);
 
 private:
-    int progress = 0;
-    bool updating = false;
+    // HTTP OTA callbacks can run outside the main loop task. These are simple
+    // aligned scalar state flags shared with the display/control loop.
+    volatile int progress = 0;
+    volatile bool updating = false;
 };
 
 extern OTAManager otaManager;
