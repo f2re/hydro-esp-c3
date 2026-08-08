@@ -11,6 +11,7 @@
 #include "status_display.h"
 #include "oled_display.h"
 #include "config_storage.h"
+#include "security_manager.h"
 #include <ESPmDNS.h>
 #include "web_server.h"
 
@@ -37,6 +38,7 @@ bool buttonStable = HIGH;
 bool buttonActionDone = false;
 bool buttonArmed = false;
 Config appConfig;
+String commissioningKey;
 
 void updatePhysicalButton() {
     const bool raw = digitalRead(BUTTON_PIN);
@@ -94,6 +96,7 @@ void setup() {
 
     configStorage.begin();
     configStorage.load(appConfig);
+    securityManager.begin();
     eventLog.begin(&ntpMgr);
 
     oled.begin();
@@ -115,9 +118,13 @@ void setup() {
     );
 
     if (!wifiOk) {
-        serial.printBootStep("📡", "WiFi", false, "HydroESP-Setup");
-        oled.drawBoot(2, "Setup AP");
-        wifiMgr.startAP(AP_SSID);
+        commissioningKey = securityManager.operatorKey();
+        serial.printBootStep("🔐", "Setup AP", true, AP_SSID);
+        Serial.printf("[SEC] Setup Wi-Fi: %s\n", AP_SSID);
+        Serial.printf("[SEC] Setup key: %s\n", commissioningKey.c_str());
+        Serial.println("[SEC] Setup URL: http://192.168.4.1");
+        oled.drawBoot(2, "Protected AP");
+        wifiMgr.startAP(AP_SSID, commissioningKey.c_str());
     } else {
         serial.printBootStep("📡", "WiFi", true, wifiMgr.localIP());
         oled.drawBoot(2, "WiFi OK");
@@ -141,7 +148,7 @@ void setup() {
         Serial.printf("[mDNS] http://%s.local\n", MDNS_HOST);
     }
 
-    oled.drawBoot(4, "Ready!");
+    if (wifiOk) oled.drawBoot(4, "Ready!");
     serial.printSchedule(&scheduler);
     delay(600);
 }
@@ -167,7 +174,11 @@ void loop() {
     const uint32_t now = millis();
     if (static_cast<uint32_t>(now - lastOled) >= OLED_INTERVAL_MS) {
         lastOled = now;
-        oled.update(&ntpMgr, &relay, &wifiMgr, &scheduler);
+        if (wifiMgr.isAPMode()) {
+            oled.drawProvisioning(AP_SSID, commissioningKey, wifiMgr.localIP());
+        } else {
+            oled.update(&ntpMgr, &relay, &wifiMgr, &scheduler);
+        }
     }
 
     if (static_cast<uint32_t>(now - lastSerial) >= SERIAL_INTERVAL_MS) {
