@@ -10,67 +10,56 @@
 - light/dark/system theme, keyboard focus и reduced-motion support;
 - hold-to-start для web и физической BOOT-кнопки;
 - визуальная 24-часовая шкала расписания и dirty-state;
-- **сохранённый режим timer automation: active / paused** без удаления графика;
-- отдельный maintenance flow для обслуживания и калибровки;
-- явный источник каждого pump start: schedule / web / BOOT / calibration;
-- явная причина pump stop: manual / timeout / reboot / OTA / automation pause;
-- RAM-only кольцевой журнал 32 последних управляющих событий текущей сессии;
+- сохранённый режим timer automation `active / paused` без удаления графика;
+- отдельный maintenance flow;
+- pump start source и stop reason;
+- RAM-only журнал 32 последних управляющих событий текущей сессии;
 - API v3: automation, hydraulics, calibration start, events;
-- пошаговый мастер измерения фактического расхода через мерную ёмкость;
-- сохранение фактического `Q` в NVS как мл/мин;
-- сохранение `delivery_efficiency_pct`;
-- инженерный калькулятор, использующий сохранённую калибровку, и диагностический VPD;
-- безопасный JSON backup v2: schedule + automation + hydraulics без Wi‑Fi password;
-- device diagnostics endpoint/UI;
-- firmware version, build SHA и API version;
-- PWA manifest;
-- `tools/hydroctl.py` для bootstrap/build/install/doctor/status/monitor/events/pause/resume/backup/restore/update;
-- macOS/Linux и Windows installer/updater wrappers;
-- SHA-256 verified latest-release updater;
-- release workflow для versioned firmware assets;
-- embedded web UI quality gate;
-- эксплуатационная документация `docs/*`.
+- серийная гидравлическая калибровка: mean Q, sample CV, timestamp и protocol version;
+- инженерный калькулятор на сохранённом Q + диагностический VPD;
+- safe backup v2 без Wi‑Fi password;
+- `hydroctl` для install/doctor/status/events/pause/resume/backup/restore/update;
+- OTA/release pipeline с SHA-256;
+- **SecurityManager** с отдельным persistent commissioning key;
+- WPA2-защищённый `HydroESP-Setup`;
+- OLED recovery screen с SSID/key/IP;
+- `tools/export_ui_preview.py` для воспроизводимого preview embedded UI;
+- CI screenshots: desktop overview, mobile overview и hydraulic calibration;
+- визуальный README с badges, screenshots и коротким quick start.
 
 ### Changed
 
-- restore теперь fail-safe: сначала pause automation, затем schedule/hydraulics restore; автоматическое возобновление возможно только через явный `--resume-automation`;
-- pause/resume потребляет текущую минуту Scheduler, поэтому пропущенный слот не запускается задним числом;
+- restore fail-safe: сначала pause, затем restore; resume только явно;
+- pause/resume не создаёт догоняющий schedule-cycle;
 - calibration test разрешён только при paused automation и idle pump;
-- default build больше не встраивает обязательный Wi‑Fi credential;
-- first boot без рабочего SSID переходит в `HydroESP-Setup`;
-- PlatformIO serial port больше не привязан к macOS;
-- AsyncWebServer/AsyncTCP переведены на ESP32Async packages;
-- ArduinoJson и embedded toolchain закреплены версиями;
-- OLED и Serial dashboard используют runtime Scheduler;
-- Serial показывает фактически применённый UTC offset;
-- NTP date conversion не зависит от process timezone;
-- README перестроен как продуктовая точка входа;
-- install/update/troubleshooting/API/security инструкции разделены по задачам.
+- default build не встраивает обязательный домашний Wi‑Fi credential;
+- fallback setup network теперь требует отдельный device key;
+- commissioning key хранится отдельно от schedule/Wi‑Fi configuration и не входит в backup;
+- в AP mode OLED постоянно показывает данные для восстановления доступа;
+- README сокращён: эксплуатационные детали вынесены в `docs/`;
+- CI artifact теперь содержит firmware, mock UI preview и screenshots.
 
 ### Fixed
 
-- потеря последних циклов исходного 38-slot графика при web-save из-за старого лимита 32;
+- потеря последних циклов 38-slot factory schedule при старом web-limit 32;
 - выдача сохранённого Wi‑Fi password через read API;
-- потенциально блокирующий reconnect в основном loop;
+- блокирующий reconnect в основном loop;
 - неверный IP в AP mode;
 - rollover relay progress/timeout;
-- возможный догоняющий schedule-cycle после manual overlap;
-- возможный догоняющий slot сразу после resume automation;
+- догоняющий schedule-cycle после manual overlap/resume;
 - рассинхронизация OLED/Serial с runtime schedule;
-- отображение compile-time timezone вместо runtime настройки;
-- риск запуска насоса коротким случайным нажатием BOOT;
-- риск интерпретировать удерживаемый во время reset BOOT как pump start.
+- compile-time timezone вместо runtime настройки;
+- случайный BOOT-start и start после удержания BOOT во время reset.
 
 ### Security / Safety
 
-- reboot и OTA сначала выключают насос;
-- pause automation останавливает активный schedule-cycle, но не скрыто прерывает ручной/calibration cycle;
-- calibration test ограничен сервером 5–120 s;
-- любой pump start остаётся ограничен общим maximum runtime;
-- API валидирует schedule/config/hydraulics;
-- backup не содержит Wi‑Fi password;
-- event journal намеренно RAM-only, чтобы не использовать NVS как высокочастотный лог;
-- известные ограничения HTTP/auth/signed OTA/open provisioning AP и отсутствующих hardware interlocks документированы.
+- reboot/OTA сначала выключают насос;
+- любой pump start имеет maximum runtime;
+- pause automation безопасно отделён от maintenance/manual cycles;
+- protected commissioning AP заменяет открытую setup-сеть;
+- commissioning secret доступен локально через OLED/Serial и не выдаётся HTTP endpoint;
+- backup не содержит Wi‑Fi password или commissioning key;
+- остаются честно открытыми: web-auth/TLS, signed OTA и hardware level/flow interlocks.
 
 ## До первой стабильной версии
 
@@ -78,6 +67,6 @@
 
 1. зелёного CI на `main`;
 2. стендового smoke-test реальной платы;
-3. проверки USB install → provisioning → schedule → pause/resume → manual pump → hydraulic calibration → backup/restore → OTA;
-4. повторяемой калибровки фактического Q;
+3. проверки USB install → protected provisioning → schedule → pause/resume → manual pump → calibration → backup/restore → OTA;
+4. проверки питания и повторяемости Q;
 5. фиксации hardware/security ограничений в release notes.
