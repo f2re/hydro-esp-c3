@@ -43,7 +43,7 @@ bash install.sh
 .\install.ps1
 ```
 
-Первый запуск скачивает PlatformIO/ESP32 toolchain и библиотеки. Дальше тяжёлые пакеты берутся из постоянного `~/.platformio`, а скомпилированные framework/library-объекты — из `~/.platformio/build-cache`. Обычные `git pull`, сборки и перепрошивки не должны скачивать весь toolchain заново.
+Первый запуск скачивает PlatformIO/ESP32 toolchain и библиотеки. Дальше тяжёлые пакеты берутся из постоянного `~/.platformio`, а скомпилированные framework/library-объекты — из `~/.platformio/build-cache`. Обычные `git pull`, сборки и перепрошивки не должны скачивать весь toolchain заново. Build/version identity изолирован в одном объекте и не должен заставлять PlatformIO пересобирать весь Arduino framework при каждом новом commit SHA.
 
 Для повторного deploy по USB:
 
@@ -69,6 +69,12 @@ Windows:
 
 ```powershell
 .\wifi-flash.ps1 192.168.1.57
+```
+
+`wifi-flash` показывает прогресс передачи и считает обновление успешным только после того, как контроллер перезагрузился и снова подтвердил `/api/status`. Штатно используется HTTP OTA; независимый ArduinoOTA/`espota.py` на порту 3232 можно вызвать явно:
+
+```bash
+./wifi-flash.sh 192.168.1.57 --transport arduino
 ```
 
 Установщик сам ищет домашний Wi‑Fi в таком порядке:
@@ -117,7 +123,7 @@ WIFI_SSID='MyHomeWiFi' WIFI_PASSWORD='secret' bash install.sh
 | Локальная работа без облака | Stop одним нажатием | Калибровка без неожиданного автополива |
 | Пропущенный цикл не «догоняется» | Ограничение времени запуска | Backup / restore / диагностика |
 
-- 📅 редактируемое суточное расписание;
+- 📅 редактируемое суточное расписание и визуальное автопостроение по рассвету/закату;
 - 💧 ручное управление насосом;
 - ⏸ режим обслуживания;
 - 🧪 калибровка фактического расхода через мерную ёмкость;
@@ -127,8 +133,8 @@ WIFI_SSID='MyHomeWiFi' WIFI_PASSWORD='secret' bash install.sh
 - 🧾 журнал действий текущей сессии;
 - 🩺 диагностика RAM / flash / reset reason;
 - 💾 backup/restore без Wi‑Fi-пароля;
-- ⬆️ HTTP OTA и независимый recovery OTA по Wi‑Fi;
-- 🖥 полный IP всегда виден на OLED и в Serial.
+- ⬆️ HTTP OTA с прогрессом и независимый ArduinoOTA recovery по Wi‑Fi;
+- 🖥 русифицированный OLED: IP, пауза автоматики, полив, OTA и ошибки видны без Web UI.
 
 ## 🖥 Интерфейс
 
@@ -150,6 +156,12 @@ WIFI_SSID='MyHomeWiFi' WIFI_PASSWORD='secret' bash install.sh
 </td>
 </tr>
 </table>
+
+### 📅 Расписание
+
+Во вкладке **Расписание** есть конструктор: рассвет → закат или свои часы, периодичность либо точное число запусков, длительность вручную либо из гидравлики, 24-часовой preview и перенос в черновик перед явным сохранением.
+
+Подробно: [docs/SCHEDULE.md](docs/SCHEDULE.md).
 
 ### 🎨 Favicon и Web-ресурсы
 
@@ -186,34 +198,37 @@ WIFI_SSID='MyHomeWiFi' WIFI_PASSWORD='secret' bash install.sh
 | Первая установка / переустановка по USB | `bash install.sh` / `.\install.ps1` | PlatformIO ставится при необходимости; Wi‑Fi берётся из env/.env или спрашивается; настройки устройства сохраняются |
 | Быстрый повторный deploy по USB | `./deploy.sh` / `.\deploy.ps1` | использует уже скачанный toolchain и постоянный build-cache; сохранённый Wi‑Fi/NVS не меняется |
 | Забрать код и сразу deploy | `./deploy.sh --pull` / `.\deploy.ps1 -Pull` | только `git pull --ff-only`, затем сборка/прошивка; dirty tree блокируется |
-| Recovery по Wi‑Fi без Web UI | `./wifi-flash.sh <IP>` / `.\wifi-flash.ps1 <IP>` | сборка + отдельный ArduinoOTA/espota канал 3232; для старой прошивки fallback на `/ota/upload` |
-| Обновить работающий контроллер HTTP OTA | `python3 tools/hydroctl.py update --host <IP>` | настройки сохраняются; браузер не нужен |
-| Обновить через Web UI | раздел **Прошивка** | настройки сохраняются |
+| Проверенное OTA по Wi‑Fi | `./wifi-flash.sh <IP>` / `.\wifi-flash.ps1 <IP>` | потоковая загрузка с прогрессом → финальное подтверждение → reboot → проверка build/uptime |
+| Явный ArduinoOTA recovery | `./wifi-flash.sh <IP> --transport arduino` | штатный `espota.py`, порт 3232, Web UI/HTTP не требуются |
+| Обновить через Web UI | раздел **Прошивка** | XHR progress через `/ota/upload`, настройки сохраняются |
 
 Для ручного flasher в Release используется единый `hydro-esp-c3-install.bin`; внутренние bootloader/partition offsets пользователю выставлять не нужно.
 
 ## 🧰 Полезные команды
 
 ```bash
-python3 tools/hydroctl.py doctor        # диагностика
-python3 tools/hydroctl.py build         # локальная сборка с кэшем
-python3 tools/hydroctl.py monitor       # Serial 115200
-python3 tools/hydroctl.py status        # состояние
-python3 tools/hydroctl.py pause         # пауза автоматики
-python3 tools/hydroctl.py resume        # возобновить
-python3 tools/hydroctl.py backup        # резервная копия
-python3 tools/hydroctl.py update        # HTTP OTA
-./wifi-flash.sh 192.168.1.57            # recovery OTA без Web UI
-python3 tools/check_web_assets.py       # favicon/flash-budget contract
+python3 tools/hydroctl.py doctor             # диагностика
+python3 tools/hydroctl.py build              # локальная сборка с кэшем
+python3 tools/hydroctl.py monitor            # Serial 115200
+python3 tools/hydroctl.py status             # состояние
+python3 tools/hydroctl.py pause              # пауза автоматики
+python3 tools/hydroctl.py resume             # возобновить
+python3 tools/hydroctl.py backup             # резервная копия
+./wifi-flash.sh 192.168.1.57                 # проверенное OTA по Wi-Fi
+./wifi-flash.sh 192.168.1.57 --transport arduino  # ArduinoOTA recovery
+python3 tools/check_recovery_contract.py     # OTA/deploy contract
+python3 tools/check_display_contract.py      # OLED contract
+python3 tools/check_build_cache_contract.py  # incremental-build contract
 ```
 
 ## 🌐 Если сайт не открывается
 
-Сначала смотрите OLED. Он показывает полный адрес, например:
+Сначала смотрите OLED. Он показывает экран **САЙТ** и полный адрес, например:
 
 ```text
-WEB ADDRESS
+САЙТ
 192.168.1.57
+hydro.local
 ```
 
 Открывайте:
@@ -230,7 +245,7 @@ http://192.168.1.57
 curl http://192.168.1.57/ping
 ```
 
-Если приходит `pong`, сеть и HTTP живы. Даже если сама `/` сломана, свежую прошивку можно залить через `./wifi-flash.sh 192.168.1.57`. Для старых прошивок команда автоматически пробует прямой `/ota/upload`.
+Если приходит `pong`, сеть и HTTP живы. Даже если сама `/` сломана, свежую прошивку можно залить через `./wifi-flash.sh 192.168.1.57`. Если отказал сам HTTP-сервер, используйте `--transport arduino`.
 
 ## 🔓 Сеть без лишних барьеров
 
@@ -246,14 +261,14 @@ ESP32-C3
 ├── Scheduler         расписание + пауза
 ├── ConfigStorage     NVS + one-shot Wi-Fi seed
 ├── Wi‑Fi / NTP       STA или простой setup AP
-├── RecoveryOTA       независимый Wi-Fi recovery, порт 3232
+├── RecoveryOTA       независимый ArduinoOTA, порт 3232
 ├── EventLog          журнал текущей сессии
-├── OLED / Serial     IP и локальная диагностика
+├── OLED / Serial     русские состояния + IP/диагностика
 └── AsyncWebServer
     ├── Web UI        потоково из flash/PROGMEM
     ├── favicon       ICO + SVG, ~2.7 КБ flash
     ├── API v3
-    └── HTTP OTA
+    └── HTTP OTA      final ACK → deferred reboot
 ```
 
 UI self-contained: внешние CDN/серверы для работы контроллера не нужны. Крупные статические ресурсы не должны копироваться целиком в Arduino `String`; они отдаются explicit-length ответами прямо из flash.
@@ -266,7 +281,9 @@ UI self-contained: внешние CDN/серверы для работы кон�
 - [x] Web UI desktop/mobile;
 - [x] favicon без файловой системы;
 - [x] независимый Wi‑Fi recovery OTA;
-- [x] расписание + обслуживание;
+- [x] проверенное OTA с прогрессом и post-reboot контролем;
+- [x] русифицированный OLED со статусами безопасности;
+- [x] расписание + автопостроение + обслуживание;
 - [x] калибровка расхода;
 - [x] backup / OTA / диагностика;
 - [ ] minimum-level interlock;
@@ -280,6 +297,8 @@ Roadmap: [issue #2](https://github.com/f2re/hydro-esp-c3/issues/2).
 
 - 🚀 [Установка](docs/INSTALL.md)
 - 🌐 [Доступ к Web UI](docs/WEB_ACCESS.md)
+- 📅 [Расписание и автопостроение](docs/SCHEDULE.md)
+- 🖥 [OLED: экраны и статусы](docs/OLED.md)
 - 🎨 [Web-ресурсы и favicon](docs/WEB_ASSETS.md)
 - ⬆️ [Обновление и recovery](docs/UPDATE.md)
 - 🩺 [Диагностика](docs/TROUBLESHOOTING.md)
