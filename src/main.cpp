@@ -13,6 +13,7 @@
 #include "config_storage.h"
 #include <ESPmDNS.h>
 #include "web_server.h"
+#include "recovery_ota.h"
 
 WiFiManager      wifiMgr;
 NTPManager       ntpMgr;
@@ -148,6 +149,11 @@ void setup() {
     webSrv.begin(&relay, &scheduler, &ntpMgr, &wifiMgr, &oled);
     if (wifiOk || wifiMgr.isAPMode()) {
         Serial.printf("[WEB] Open: http://%s/\n", wifiMgr.localIP().c_str());
+
+        // Recovery OTA is deliberately independent from the HTTP/Web UI stack.
+        // Even if '/' or JavaScript is broken, firmware can still be pushed
+        // directly to port 3232 over the current Wi-Fi network.
+        recoveryOTA.begin(&relay, &wifiMgr, &oled);
     }
 
     if (wifiOk) {
@@ -180,6 +186,9 @@ void loop() {
     } else {
         wifiMgr.ensureConnected(appConfig.wifi_ssid.c_str(), appConfig.wifi_pass.c_str());
     }
+
+    // Keep the recovery firmware channel serviced independently of Web UI.
+    recoveryOTA.handle();
 
     ntpMgr.update();
     relay.update();
