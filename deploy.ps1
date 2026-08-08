@@ -3,12 +3,12 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Python = if (Get-Command py -ErrorAction SilentlyContinue) { "py" } else { "python" }
 
 $Pull = $false
-$HydroArgs = @()
+$DeployArgs = @()
 foreach ($Arg in $args) {
     if ($Arg -eq "-Pull" -or $Arg -eq "--pull") {
         $Pull = $true
     } else {
-        $HydroArgs += $Arg
+        $DeployArgs += $Arg
     }
 }
 
@@ -25,6 +25,6 @@ if ($Pull) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-Write-Host "[deploy] Reusing PlatformIO packages from ~/.platformio and persistent build cache"
-& $Python "$Root\tools\hydroctl.py" install @HydroArgs
+Write-Host "[deploy] Repeat deployment: cached toolchain, stored Wi-Fi/NVS preserved"
+& $Python "$Root\tools\usb_deploy.py" @DeployArgs
 exit $LASTEXITCODE
