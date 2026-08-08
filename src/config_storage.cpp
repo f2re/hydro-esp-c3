@@ -19,8 +19,23 @@ void ConfigStorage::loadFactorySchedule(Config &config) {
 }
 
 void ConfigStorage::load(Config &config) {
-    config.wifi_ssid = prefs.getString("ssid", WIFI_SSID);
-    config.wifi_pass = prefs.getString("pass", WIFI_PASSWORD);
+    const String storedSeed = prefs.getString("wifi_seed", "");
+    const bool hasInstallSeed = strlen(WIFI_SSID) > 0 && strlen(WIFI_SEED_ID) > 0;
+    if (hasInstallSeed && storedSeed != WIFI_SEED_ID) {
+        // install.sh/hydroctl supplied Wi-Fi for this installation. Apply it
+        // once and remember the seed so later Web UI changes are not reverted
+        // on every reboot.
+        config.wifi_ssid = WIFI_SSID;
+        config.wifi_pass = WIFI_PASSWORD;
+        prefs.putString("ssid", config.wifi_ssid);
+        prefs.putString("pass", config.wifi_pass);
+        prefs.putString("wifi_seed", WIFI_SEED_ID);
+        Serial.printf("[CFG] Applied install Wi-Fi seed for %s\n", config.wifi_ssid.c_str());
+    } else {
+        config.wifi_ssid = prefs.getString("ssid", WIFI_SSID);
+        config.wifi_pass = prefs.getString("pass", WIFI_PASSWORD);
+    }
+
     config.timezone_offset = prefs.getInt("tz", TIMEZONE_OFFSET);
     if (config.timezone_offset < -12 || config.timezone_offset > 14) {
         config.timezone_offset = TIMEZONE_OFFSET;
