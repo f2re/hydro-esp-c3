@@ -17,6 +17,7 @@ if str(TOOLS) not in sys.path:
 import hydroctl
 
 DEFAULT_OTA_PORT = 3232
+DEFAULT_OTA_TIMEOUT = 1
 DEFAULT_HOST = "hydro.local"
 FIRMWARE = ROOT / ".pio" / "build" / "esp32c3_supermini" / "firmware.bin"
 
@@ -95,6 +96,12 @@ def main() -> int:
         help="controller IP/hostname; use the numeric IP from OLED if hydro.local is unavailable",
     )
     parser.add_argument("--port", type=int, default=DEFAULT_OTA_PORT, help="recovery OTA port (default: 3232)")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=DEFAULT_OTA_TIMEOUT,
+        help="espota invitation timeout per attempt in seconds (default: 1)",
+    )
     parser.add_argument("--file", help="upload an existing firmware.bin instead of building current source")
     parser.add_argument("--clean", action="store_true", help="clean project build artifacts before building")
     parser.add_argument(
@@ -106,6 +113,9 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        if args.timeout < 1 or args.timeout > 30:
+            raise ValueError("--timeout must be in range 1..30 seconds")
+
         host = clean_host(args.host)
         env = build_env()
         pio = hydroctl.ensure_pio(True)
@@ -134,6 +144,8 @@ def main() -> int:
             host,
             "-p",
             str(args.port),
+            "-t",
+            str(args.timeout),
             "-r",
             "-f",
             str(firmware),
