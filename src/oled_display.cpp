@@ -59,6 +59,29 @@ void OledDisplay::drawBoot(uint8_t step, const char* msg) {
     _u8g2.sendBuffer();
 }
 
+void OledDisplay::drawProvisioning(const String& ssid, const String& key, const String& ip) {
+    _u8g2.clearBuffer();
+    _u8g2.setFont(u8g2_font_5x7_tr);
+    _u8g2.drawStr(x(1), y(7), "SETUP WIFI");
+    hline(9);
+
+    _u8g2.setFont(u8g2_font_4x6_tr);
+    String ssidLine = ssid;
+    if (ssidLine.length() > 17) ssidLine = ssidLine.substring(0, 17);
+    _u8g2.drawStr(x(1), y(16), ssidLine.c_str());
+
+    _u8g2.setFont(u8g2_font_5x7_tr);
+    String keyLine = key;
+    if (keyLine.length() > 12) keyLine = keyLine.substring(0, 12);
+    _u8g2.drawStr(x(1), y(26), keyLine.c_str());
+
+    _u8g2.setFont(u8g2_font_4x6_tr);
+    String ipLine = ip;
+    if (ipLine.length() > 17) ipLine = ipLine.substring(0, 17);
+    _u8g2.drawStr(x(1), y(36), ipLine.c_str());
+    _u8g2.sendBuffer();
+}
+
 void OledDisplay::update(NTPManager* ntp, RelayController* relay,
                          WiFiManager* wifi, Scheduler* scheduler) {
     const uint32_t now = millis();
