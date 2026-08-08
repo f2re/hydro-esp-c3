@@ -14,9 +14,12 @@ void OledDisplay::drawProvisioning(const String& ssid, const String& ip) {
 
     // Open setup AP: an unlocked padlock communicates "без пароля" without
     // spending another text row on the very small 72x40 logical viewport.
+    // Keep it to basic line/frame primitives so it is portable across the
+    // pinned U8g2 API and costs essentially nothing in flash.
     const int lx = x(32);
     const int ly = y(33);
     _u8g2.drawFrame(lx, ly + 2, 8, 5);
-    _u8g2.drawArc(lx + 6, ly + 2, 3, 3, 0, 2);
+    _u8g2.drawLine(lx + 5, ly + 2, lx + 5, ly);
+    _u8g2.drawLine(lx + 5, ly, lx + 8, ly);
     _u8g2.sendBuffer();
 }
