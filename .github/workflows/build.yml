@@ -20,9 +20,27 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-build.txt
 
-      - name: Install PlatformIO
-        run: python -m pip install --upgrade "platformio>=6.1,<7"
+      - name: Restore PlatformIO caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/platforms
+            ~/.platformio/packages
+            ~/.platformio/.cache
+            ~/.platformio/build-cache
+            .pio/libdeps
+          key: ${{ runner.os }}-${{ runner.arch }}-pio-${{ hashFiles('platformio.ini', 'requirements-build.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-pio-
+
+      - name: Install PlatformIO Core
+        run: python -m pip install --disable-pip-version-check -r requirements-build.txt
+
+      - name: Resolve project dependencies
+        run: pio pkg install -e esp32c3_supermini
 
       - name: Check maintenance and hardware contracts
         shell: bash
@@ -34,7 +52,7 @@ jobs:
           python tools/check_install_wifi.py
           python tools/check_hardware_baseline.py
           python tools/make_factory_image.py --help >/dev/null
-          sh -n install.sh update.sh
+          sh -n install.sh update.sh deploy.sh
 
       - name: Check embedded web UI
         run: python tools/check_web_ui.py

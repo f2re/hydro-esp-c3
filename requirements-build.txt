@@ -1,0 +1,2 @@
+# Reproducible build tooling. Runtime firmware dependencies stay in platformio.ini.
+platformio==6.1.19
