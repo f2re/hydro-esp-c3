@@ -41,6 +41,22 @@ bash install.sh
 .\install.ps1
 ```
 
+Первый запуск скачивает PlatformIO/ESP32 toolchain и библиотеки. Дальше тяжёлые пакеты берутся из постоянного `~/.platformio`, а скомпилированные framework/library-объекты — из `~/.platformio/build-cache`. Обычные `git pull`, сборки и перепрошивки не должны скачивать весь toolchain заново.
+
+Для повторного deploy по USB:
+
+```bash
+./deploy.sh
+```
+
+А чтобы сначала безопасно забрать свежий код текущей ветки, затем прошить:
+
+```bash
+./deploy.sh --pull
+```
+
+На Windows: `.\deploy.ps1` или `.\deploy.ps1 -Pull`. Обновление кода выполняется только через fast-forward и блокируется при незакоммиченных изменениях.
+
 Установщик сам ищет домашний Wi‑Fi в таком порядке:
 
 1. `WIFI_SSID` / `WIFI_PASSWORD` из окружения;
@@ -146,8 +162,10 @@ WIFI_SSID='MyHomeWiFi' WIFI_PASSWORD='secret' bash install.sh
 
 | Действие | Команда | Что происходит |
 |---|---|---|
-| Установить / переустановить по USB | `bash install.sh` / `.\install.ps1` | Wi‑Fi берётся из env/.env или спрашивается; расписание/калибровка сохраняются |
-| Обновить работающий контроллер | `python3 tools/hydroctl.py update` | настройки сохраняются |
+| Первая установка / переустановка по USB | `bash install.sh` / `.\install.ps1` | PlatformIO ставится при необходимости; Wi‑Fi берётся из env/.env или спрашивается; настройки устройства сохраняются |
+| Быстрый повторный deploy по USB | `./deploy.sh` / `.\deploy.ps1` | использует уже скачанный toolchain и постоянный build-cache |
+| Забрать код и сразу deploy | `./deploy.sh --pull` / `.\deploy.ps1 -Pull` | только `git pull --ff-only`, затем сборка/прошивка; dirty tree блокируется |
+| Обновить работающий контроллер OTA | `python3 tools/hydroctl.py update` | настройки сохраняются |
 | Обновить через Web UI | раздел **Прошивка** | настройки сохраняются |
 
 Для ручного flasher в Release используется единый `hydro-esp-c3-install.bin`; внутренние bootloader/partition offsets пользователю выставлять не нужно.
@@ -156,12 +174,13 @@ WIFI_SSID='MyHomeWiFi' WIFI_PASSWORD='secret' bash install.sh
 
 ```bash
 python3 tools/hydroctl.py doctor   # диагностика
+python3 tools/hydroctl.py build    # локальная сборка с кэшем
 python3 tools/hydroctl.py monitor  # Serial 115200
 python3 tools/hydroctl.py status   # состояние
 python3 tools/hydroctl.py pause    # пауза автоматики
 python3 tools/hydroctl.py resume   # возобновить
 python3 tools/hydroctl.py backup   # резервная копия
-python3 tools/hydroctl.py update   # обновить
+python3 tools/hydroctl.py update   # обновить OTA
 ```
 
 ## 🌐 Если сайт не открывается
