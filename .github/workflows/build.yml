@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile tools/hydroctl.py tools/usb_deploy.py tools/wifi_flash.py tools/check_recovery_contract.py tools/check_install_wifi.py tools/check_hardware_baseline.py tools/check_web_ui.py tools/export_ui_preview.py tools/make_factory_image.py scripts/build_flags.py
+          python -m py_compile tools/hydroctl.py tools/usb_deploy.py tools/wifi_flash.py tools/check_recovery_contract.py tools/check_install_wifi.py tools/check_hardware_baseline.py tools/check_web_ui.py tools/check_web_assets.py tools/export_ui_preview.py tools/make_factory_image.py scripts/build_flags.py
           python tools/hydroctl.py --help >/dev/null
           python tools/hydroctl.py install --help >/dev/null
           python tools/usb_deploy.py --help >/dev/null
@@ -55,10 +55,12 @@ jobs:
           python tools/check_install_wifi.py
           python tools/check_hardware_baseline.py
           python tools/make_factory_image.py --help >/dev/null
-          sh -n install.sh update.sh deploy.sh
+          sh -n install.sh update.sh deploy.sh wifi-flash.sh
 
-      - name: Check embedded web UI
-        run: python tools/check_web_ui.py
+      - name: Check embedded web UI and assets
+        run: |
+          python tools/check_web_ui.py
+          python tools/check_web_assets.py
 
       - name: Export UI preview
         run: python tools/export_ui_preview.py .artifacts/ui-preview.html --mock
