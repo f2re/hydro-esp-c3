@@ -1,0 +1,25 @@
+name: Apply hardware recovery
+
+on:
+  push:
+    branches: [agent/hardware-boot-recovery-20260808]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python tools/_apply_hardware_recovery.py
+      - shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add platformio.ini src/main.cpp .github/workflows/build.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "Restore proven hardware boot baseline"
+          git push
