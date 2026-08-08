@@ -119,9 +119,43 @@ def load_dotenv(env: dict[str, str]) -> None:
         if key not in allowed or key in env:
             continue
         value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"\"", "'"}:
+        if len(value) >= 2 and value[0] == value[-1] == '"':
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                value = value[1:-1]
+        elif len(value) >= 2 and value[0] == value[-1] == "'":
             value = value[1:-1]
         env[key] = value
+
+
+def save_wifi_dotenv(ssid: str, password: str) -> None:
+    path = ROOT / ".env"
+    values = {
+        "WIFI_SSID": json.dumps(ssid, ensure_ascii=False),
+        "WIFI_PASSWORD": json.dumps(password, ensure_ascii=False),
+    }
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else [
+        "# Local HydroESP-C3 settings. This file is ignored by Git.",
+    ]
+    seen: set[str] = set()
+    result: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if "=" in stripped and not stripped.startswith("#"):
+            key = stripped.split("=", 1)[0].strip()
+            if key in values:
+                result.append(f"{key}={values[key]}")
+                seen.add(key)
+                continue
+        result.append(line)
+    for key in ("WIFI_SSID", "WIFI_PASSWORD"):
+        if key not in seen:
+            result.append(f"{key}={values[key]}")
+    path.write_text("\n".join(result).rstrip() + "\n", encoding="utf-8")
+    if os.name != "nt":
+        path.chmod(0o600)
+    say("Wi-Fi saved to local .env for future installs")
 
 
 def build_env(args, *, prompt_wifi: bool = False) -> dict[str, str]:
@@ -134,16 +168,23 @@ def build_env(args, *, prompt_wifi: bool = False) -> dict[str, str]:
     ssid = env.get("WIFI_SSID", "").strip()
     password_set = "WIFI_PASSWORD" in env
 
+    prompted_ssid = False
+    prompted_password = False
     if prompt_wifi and not ssid and sys.stdin.isatty():
         ssid = input("Home Wi-Fi SSID (Enter = configure later via HydroESP-Setup): ").strip()
         if ssid:
             env["WIFI_SSID"] = ssid
+            prompted_ssid = True
 
     if prompt_wifi and ssid and not password_set and sys.stdin.isatty():
         env["WIFI_PASSWORD"] = getpass.getpass(
             "Home Wi-Fi password (Enter if the network is open): "
         )
         password_set = True
+        prompted_password = True
+
+    if prompt_wifi and ssid and (prompted_ssid or prompted_password):
+        save_wifi_dotenv(ssid, env.get("WIFI_PASSWORD", ""))
 
     if ssid:
         env["WIFI_SSID"] = ssid

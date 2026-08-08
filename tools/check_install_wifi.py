@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression checks for install Wi-Fi env/.env resolution."""
+"""Regression checks for install Wi-Fi env/.env resolution and persistence."""
 
 from __future__ import annotations
 
@@ -8,17 +8,14 @@ import os
 from pathlib import Path
 import tempfile
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("hydroctl", ROOT / "tools/hydroctl.py")
 assert SPEC and SPEC.loader
 hydroctl = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(hydroctl)
 
-
 class Args:
     timezone = None
-
 
 saved_root = hydroctl.ROOT
 saved = {key: os.environ.get(key) for key in ("WIFI_SSID", "WIFI_PASSWORD", "TIMEZONE_OFFSET", "WIFI_SEED_ID")}
@@ -45,6 +42,16 @@ try:
         assert env["WIFI_SSID"] == "shell-net"
         assert env["WIFI_PASSWORD"] == "shell-pass"
         assert len(env["WIFI_SEED_ID"]) == 16
+        os.environ.pop("WIFI_SSID", None)
+        os.environ.pop("WIFI_PASSWORD", None)
+
+        hydroctl.save_wifi_dotenv("saved net", "p@ss # with spaces")
+        persisted = {}
+        hydroctl.load_dotenv(persisted)
+        assert persisted["WIFI_SSID"] == "saved net"
+        assert persisted["WIFI_PASSWORD"] == "p@ss # with spaces"
+        if os.name != "nt":
+            assert (hydroctl.ROOT / ".env").stat().st_mode & 0o777 == 0o600
 
     print("install-wifi check: OK")
 finally:
