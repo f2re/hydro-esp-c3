@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 UI = ROOT / "src/web_ui_v2.h"
+SERVER = ROOT / "src/web_server.cpp"
 
 
 def fail(message: str) -> None:
@@ -48,7 +49,25 @@ def main() -> None:
     finally:
         js_path.unlink(missing_ok=True)
 
-    print(f"web-ui check: OK ({len(html)} bytes, {len(ids)} ids)")
+    # The embedded page is much larger than a safe temporary Arduino String on
+    # an ESP32-C3. ESPAsyncWebServer's const-char overload copies the whole body
+    # into String and can silently degrade to HTTP 200 / Content-Length: 0 when
+    # the allocation fails. Require the explicit-length progmem response path.
+    server = SERVER.read_text(encoding="utf-8")
+    broken_send = 'request->send(200, "text/html; charset=utf-8", WEB_UI_HTML);'
+    if broken_send in server:
+        fail("large WEB_UI_HTML is sent through allocating const-char overload")
+    for required in (
+        "void sendWebUi(AsyncWebServerRequest *request)",
+        "reinterpret_cast<const uint8_t*>(WEB_UI_HTML)",
+        "sizeof(WEB_UI_HTML) - 1",
+    ):
+        if required not in server:
+            fail(f"flash-streamed UI transport missing: {required}")
+    if server.count("sendWebUi(request);") < 2:
+        fail("both root route and setup-AP fallback must use flash-streamed UI transport")
+
+    print(f"web-ui check: OK ({len(html)} bytes, {len(ids)} ids, flash-streamed transport)")
 
 
 if __name__ == "__main__":
