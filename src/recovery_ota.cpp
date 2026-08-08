@@ -52,12 +52,13 @@ void RecoveryOTA::begin(RelayController* r, WiFiManager* w, OledDisplay* o) {
 
     ArduinoOTA.onEnd([this]() {
         otaManager.end(true);
-        if (oled) oled->drawOTA(100);
+        if (oled) oled->drawOTAComplete();
         Serial.println("[RECOVERY OTA] Update complete; rebooting");
     });
 
     ArduinoOTA.onError([this](ota_error_t error) {
         otaManager.end(false);
+        if (oled) oled->drawOTAError();
         Serial.printf("[RECOVERY OTA] ERROR %u (%s)\n",
                       static_cast<unsigned>(error), otaErrorText(error));
     });
