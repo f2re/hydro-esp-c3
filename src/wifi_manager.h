@@ -10,7 +10,7 @@ public:
     void ensureConnected(const char* ssid, const char* pass);
     String localIP();
 
-    void startAP(const char* ap_ssid = AP_SSID, const char* ap_pass = nullptr);
+    bool startAP(const char* ap_ssid, const char* ap_pass);
     void updateDNS();
     bool isAPMode() const { return ap_mode; }
 
