@@ -31,14 +31,20 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
         run: pio run
 
-      - name: Prepare release assets
+      - name: Prepare OTA and factory assets
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          src=.pio/build/esp32c3_supermini/firmware.bin
-          cp "$src" "dist/hydro-esp-c3-${GITHUB_REF_NAME}.bin"
-          cp "$src" "dist/hydro-esp-c3-latest.bin"
+
+          app=.pio/build/esp32c3_supermini/firmware.bin
+          cp "$app" "dist/hydro-esp-c3-${GITHUB_REF_NAME}-ota.bin"
+          cp "$app" "dist/hydro-esp-c3-latest-ota.bin"
+
+          python tools/make_factory_image.py "dist/hydro-esp-c3-${GITHUB_REF_NAME}-factory.bin"
+          cp "dist/hydro-esp-c3-${GITHUB_REF_NAME}-factory.bin" \
+             "dist/hydro-esp-c3-latest-factory.bin"
+
           cd dist
           sha256sum *.bin > hydro-esp-c3.sha256
 
