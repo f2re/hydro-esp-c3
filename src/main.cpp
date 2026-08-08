@@ -135,23 +135,31 @@ void setup() {
         oled.drawBoot(2, "WiFi OK");
     }
 
-    oled.drawBoot(3, "NTP...");
-    ntpMgr.begin(appConfig.timezone_offset);
+    // The operator UI must become reachable as soon as networking is ready.
+    // NTP is optional for opening the site and must never delay provisioning.
+    webSrv.begin(&relay, &scheduler, &ntpMgr, &wifiMgr, &oled);
+    if (wifiOk || wifiMgr.isAPMode()) {
+        Serial.printf("[WEB] Open: http://%s/\n", wifiMgr.localIP().c_str());
+    }
 
     if (wifiOk) {
+        if (MDNS.begin(MDNS_HOST)) {
+            MDNS.addService("http", "tcp", 80);
+            Serial.printf("[mDNS] http://%s.local\n", MDNS_HOST);
+        } else {
+            Serial.println("[mDNS] unavailable; use the numeric IP shown above/OLED");
+        }
+
+        oled.drawBoot(3, "NTP...");
+        ntpMgr.begin(appConfig.timezone_offset);
         serial.printBootStep("🕐", "NTP", ntpMgr.isSynced(), ntpMgr.getTimeString());
         oled.drawBoot(3, ntpMgr.isSynced() ? "NTP OK" : "NTP wait");
+    } else {
+        Serial.println("[NTP] Skipped in setup AP mode");
     }
 
     eventLog.record(EventType::Boot, PumpSource::None, PumpStopReason::None,
                     appConfig.automation_enabled ? 1 : 0);
-
-    webSrv.begin(&relay, &scheduler, &ntpMgr, &wifiMgr, &oled);
-
-    if (wifiOk && MDNS.begin(MDNS_HOST)) {
-        MDNS.addService("http", "tcp", 80);
-        Serial.printf("[mDNS] http://%s.local\n", MDNS_HOST);
-    }
 
     if (wifiOk) oled.drawBoot(4, "Ready!");
     serial.printSchedule(&scheduler);

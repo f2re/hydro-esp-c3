@@ -2,12 +2,22 @@
 
 После первичной USB-прошивки штатный способ обновления — OTA в доверенной локальной сети.
 
+> [!IMPORTANT]
+> В проекте теперь два разных типа BIN: **OTA** и **FACTORY**. Они не взаимозаменяемы.
+
+| Образ | Для чего | Куда писать | NVS |
+|---|---|---|---|
+| `*-ota.bin` | обновление работающего контроллера | Web UI / `hydroctl update` | сохраняется |
+| `*-factory.bin` | чистая плата, полностью стёртый flash, аварийное USB recovery | flash с адреса `0x0` | сбрасывается |
+
+Не загружайте `factory.bin` через Web OTA.
+
 ## Перед обновлением
 
 1. убедитесь, что питание ESP и насоса стабильно;
 2. не отключайте питание во время записи flash;
 3. сделайте backup;
-4. используйте только application firmware HydroESP-C3 для ESP32-C3 Super Mini;
+4. для OTA используйте только `*-ota.bin`;
 5. не выполняйте OTA через публичную или недоверенную сеть.
 
 Backup v2:
@@ -16,20 +26,13 @@ Backup v2:
 python3 tools/hydroctl.py backup --output hydroesp-backup.json
 ```
 
-Он содержит:
-
-- расписание;
-- состояние timer automation;
-- фактический гидравлический расход и коэффициент доставки;
-- безопасные сведения об устройстве.
-
-Wi‑Fi password **никогда не экспортируется**.
+Он содержит расписание, состояние timer automation, гидравлическую калибровку и безопасные сведения об устройстве. Wi-Fi password не экспортируется.
 
 ## Вариант 1 — браузер
 
-1. откройте `http://hydro.local`;
+1. откройте `http://hydro.local` или numeric IP с OLED;
 2. перейдите в **Прошивка**;
-3. выберите или перетащите `.bin`;
+3. выберите `*-ota.bin`;
 4. проверьте имя и размер;
 5. подтвердите операцию;
 6. дождитесь завершения записи и reboot.
@@ -56,7 +59,7 @@ Windows:
 python3 tools/hydroctl.py update
 ```
 
-`hydroctl` получает latest Release, скачивает `.bin` и `.sha256`, проверяет SHA-256 при наличии checksum и отправляет образ на `/ota/upload`.
+`hydroctl` выбирает именно `hydro-esp-c3-latest-ota.bin`, проверяет SHA-256 и отправляет его на `/ota/upload`. Factory image updater намеренно отвергает.
 
 Другой адрес устройства:
 
@@ -64,12 +67,42 @@ python3 tools/hydroctl.py update
 python3 tools/hydroctl.py update --host http://192.168.1.50
 ```
 
-## Вариант 3 — локальный `.bin`
+## Вариант 3 — локальный OTA BIN
 
 ```bash
 python3 tools/hydroctl.py update \
   --file .pio/build/esp32c3_supermini/firmware.bin
 ```
+
+Локальный `firmware.bin` PlatformIO является application/OTA image. Его нельзя записывать как полный образ с адреса `0x0` на чистую плату.
+
+## Первичная USB-прошивка и factory recovery
+
+Предпочтительный способ:
+
+```bash
+bash install.sh
+```
+
+или:
+
+```bash
+python3 tools/hydroctl.py install
+```
+
+PlatformIO сам пишет компоненты по правильным адресам ESP32-C3:
+
+```text
+0x0000   bootloader.bin
+0x8000   partitions.bin
+0xE000   boot_app0.bin
+0x10000  firmware.bin
+```
+
+Для прошивальщиков, которые принимают один файл, Release содержит `hydro-esp-c3-<version>-factory.bin`. Это merged image, его пишут с адреса `0x0`.
+
+> [!CAUTION]
+> Factory image заполняет служебную область flash заново и предназначен для чистой установки/recovery. Сохранённые Wi-Fi, расписание и калибровка NVS при таком восстановлении считаются сброшенными. Если устройство ещё доступно, сначала сделайте backup.
 
 ## Сборка собственной версии
 
@@ -77,10 +110,16 @@ python3 tools/hydroctl.py update \
 python3 tools/hydroctl.py build
 ```
 
-Результат:
+Application/OTA image:
 
 ```text
 .pio/build/esp32c3_supermini/firmware.bin
+```
+
+Полный factory image после build:
+
+```bash
+python3 tools/make_factory_image.py dist/hydro-esp-c3-factory.bin
 ```
 
 Чистая сборка:
@@ -91,14 +130,15 @@ python3 tools/hydroctl.py build --clean
 
 ## Release-процесс
 
-Tag `v*` запускает `.github/workflows/release.yml`:
+Tag `v*` запускает `.github/workflows/release.yml` и публикует:
 
-1. build из конкретного commit;
-2. version/build SHA в firmware;
-3. versioned `.bin`;
-4. `hydro-esp-c3-latest.bin`;
-5. SHA-256 список;
-6. GitHub Release.
+```text
+hydro-esp-c3-<version>-ota.bin
+hydro-esp-c3-latest-ota.bin
+hydro-esp-c3-<version>-factory.bin
+hydro-esp-c3-latest-factory.bin
+hydro-esp-c3.sha256
+```
 
 Тег должен указывать только на проверенный `main` с зелёным CI.
 
@@ -110,16 +150,7 @@ python3 tools/hydroctl.py status
 python3 tools/hydroctl.py events
 ```
 
-Проверьте:
-
-- version/build SHA и API version;
-- NTP;
-- `automation_enabled`;
-- сохранённое расписание;
-- гидравлическую калибровку;
-- Wi‑Fi;
-- причину последнего reboot;
-- короткий ручной тест, если это безопасно для установки.
+Проверьте version/build SHA, NTP, automation, расписание, калибровку, Wi-Fi и причину последнего reboot.
 
 ## Восстановление backup — безопасный порядок
 
@@ -127,62 +158,30 @@ python3 tools/hydroctl.py events
 python3 tools/hydroctl.py restore hydroesp-backup.json
 ```
 
-Restore намеренно выполняется fail-safe:
+Restore намеренно сначала ставит timer automation на паузу, восстанавливает данные и оставляет автоматику paused до проверки.
 
-1. **сначала ставит timer automation на паузу**;
-2. восстанавливает расписание;
-3. для backup v2 восстанавливает гидравлическую калибровку;
-4. оставляет автоматику на паузе;
-5. оператор проверяет график и состояние;
-6. только затем явно возобновляет работу.
-
-Возобновить отдельно:
+Возобновить:
 
 ```bash
 python3 tools/hydroctl.py resume
 ```
 
-Или сразу после restore, если результат уже проверен и это действительно требуется:
+Или явно:
 
 ```bash
 python3 tools/hydroctl.py restore hydroesp-backup.json --resume-automation
 ```
 
-Опция названа явно, чтобы восстановление конфигурации не могло незаметно запустить старый график.
+## Если Web UI после прошивки не открывается
 
-Backup v1 по-прежнему принимается для совместимости, но не содержит гидравлическую калибровку.
+См. отдельную короткую диагностику: [WEB_ACCESS.md](WEB_ACCESS.md).
 
-В web UI импорт JSON по-прежнему создаёт только **несохранённый черновик расписания**. Никакого скрытого POST в NVS нет.
+Основной принцип:
 
-## Режим обслуживания перед работами
-
-Для монтажа, калибровки, обслуживания гидравлики или проверки трубок:
-
-```bash
-python3 tools/hydroctl.py pause
-```
-
-Пауза сохраняется в NVS и не удаляет расписание. После завершения:
-
-```bash
-python3 tools/hydroctl.py resume
-```
-
-Пропущенный во время паузы слот не запускается задним числом.
-
-## Если OTA оборвалась
-
-1. не запускайте насос до проверки устройства;
-2. дождитесь возможного reboot;
-3. проверьте `doctor`, `status`, `events`;
-4. если web/API не поднимаются — выполните USB recovery:
-
-```bash
-python3 tools/hydroctl.py install --clean
-```
-
-Таблица разделов содержит две OTA app-партиции, но автоматический post-boot health confirmation/rollback пока не реализован. Две партиции сами по себе не являются гарантированным rollback-контуром.
+- `SETUP WIFI` на OLED → подключиться к `HydroESP-Setup` и открыть `http://192.168.4.1`;
+- обычный экран → использовать полный numeric IP со страницы OLED `WEB ADDRESS`;
+- нет строки `[HydroESP]` в Serial после записи одиночного `firmware.bin` в `0x0` → выполнить правильную USB/factory recovery.
 
 ## Ограничение безопасности
 
-Локальный HTTP API/OTA пока не имеют web-auth и device-side проверки криптографической подписи пользовательского образа. Используйте их только в доверенной изолированной LAN. Подробности: [SECURITY.md](SECURITY.md).
+Локальный HTTP API/OTA пока не имеют web-auth и device-side проверки криптографической подписи пользовательского образа. Используйте их только в доверенной LAN. Подробности: [SECURITY.md](SECURITY.md).

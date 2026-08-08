@@ -10,9 +10,10 @@
 
 enum DisplayPage : uint8_t {
     PAGE_CLOCK = 0,
-    PAGE_NEXT = 1,
-    PAGE_SCHEDULE = 2,
-    PAGE_COUNT = 3
+    PAGE_NETWORK = 1,
+    PAGE_NEXT = 2,
+    PAGE_SCHEDULE = 3,
+    PAGE_COUNT = 4
 };
 
 constexpr uint32_t PAGE_INTERVAL_MS = 5000;
@@ -45,6 +46,7 @@ private:
     void drawWifiIcon(int px, int py, bool connected, int rssi);
 
     void drawPageClock(NTPManager* ntp, WiFiManager* wifi);
+    void drawPageNetwork(WiFiManager* wifi);
     void drawPageNext(NTPManager* ntp, Scheduler* scheduler);
     void drawPageSchedule(NTPManager* ntp, Scheduler* scheduler);
     void drawPageWatering(RelayController* relay);
