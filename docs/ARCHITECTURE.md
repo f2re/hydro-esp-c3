@@ -2,242 +2,133 @@
 
 ## Принцип
 
-HydroESP-C3 — локальный контроллер. Критическая функция полива не должна зависеть от браузера, облака или постоянного Wi‑Fi. Web UI — операторская панель над состоянием, которое живёт на ESP32-C3.
+HydroESP-C3 — локальный контроллер: критическая функция полива живёт на ESP32-C3 и не зависит от браузера, облака или постоянного соединения с сервером.
 
-Второй принцип: **обслуживание является отдельным режимом**, а не набором скрытых исключений. Таймерную автоматику можно поставить на паузу без удаления расписания; калибровка разрешена только в этом состоянии.
+Второй принцип — **обслуживание является отдельным режимом**. Таймер можно поставить на паузу без удаления расписания; calibration-run разрешён только в этом состоянии.
 
 ## Модули
 
 ```text
 main.cpp
- ├─ ConfigStorage      NVS: Wi‑Fi, UTC, schedule, automation, hydraulics
- ├─ WiFiManager        STA / provisioning AP / captive DNS
- ├─ NTPManager         локальное абсолютное время
- ├─ EventLog           RAM-only журнал управляющих событий сессии
- ├─ RelayController    timeout + source/reason текущего цикла
- ├─ Scheduler          timer automation + explicit pause
- ├─ WebServerManager   HTTP API v3 + UI + OTA
- ├─ OledDisplay        локальная индикация
- └─ StatusDisplay      Serial dashboard
+ ├─ ConfigStorage       NVS: Wi‑Fi, UTC, schedule, automation, hydraulics
+ ├─ SecurityManager     отдельный commissioning key / namespace hydrosec
+ ├─ WiFiManager         STA / protected setup AP / captive DNS
+ ├─ NTPManager          локальное абсолютное время
+ ├─ EventLog            RAM-only журнал текущей сессии
+ ├─ RelayController     timeout + source/reason
+ ├─ Scheduler           timer automation + explicit pause
+ ├─ WebServerManager    HTTP API v3 + UI + OTA
+ ├─ OledDisplay         local state + setup recovery screen
+ └─ StatusDisplay       Serial dashboard/recovery
 ```
 
-UI в `src/web_ui_v2.h` self-contained и не использует CDN.
+UI в `src/web_ui_v2.h` полностью self-contained: runtime CDN/облако не нужны.
 
-## Загрузка
+## Boot flow
 
-1. старт MCU;
-2. GPIO насоса принудительно переводится в OFF;
-3. читается/валидируется NVS;
-4. создаётся RAM-журнал текущей сессии;
-5. Scheduler получает сохранённый график и persisted `automation_enabled`;
-6. выполняется Wi‑Fi STA attempt;
-7. при отсутствии рабочего Wi‑Fi запускается `HydroESP-Setup`;
-8. запускается NTP;
-9. boot фиксируется в EventLog;
-10. запускаются HTTP server и mDNS;
-11. `loop()` обслуживает network/NTP/relay/Scheduler/BOOT/OLED/Serial.
+1. MCU стартует, pump GPIO принудительно OFF;
+2. загружается и валидируется основная NVS-конфигурация;
+3. SecurityManager открывает отдельный `hydrosec` namespace;
+4. Scheduler получает runtime schedule и `automation_enabled`;
+5. выполняется Wi‑Fi STA attempt;
+6. если STA не поднялся — запускается `HydroESP-Setup` с persistent device key;
+7. OLED постоянно показывает setup SSID/key/IP;
+8. Serial дублирует credential как физический recovery channel;
+9. запускаются NTP, HTTP server и при STA — mDNS;
+10. `loop()` обслуживает network/NTP/relay/Scheduler/BOOT/OLED/Serial.
 
 ## Runtime state
 
-### ConfigStorage / NVS
+### ConfigStorage
 
-Долгоживущая конфигурация:
+Хранит Wi‑Fi, UTC offset, automation state, calibration metadata и schedule. Старые устройства получают безопасные defaults без сброса существующих Wi‑Fi/слотов.
 
-- Wi‑Fi SSID/password;
-- UTC offset;
-- `automation_enabled`;
-- `pump_flow_ml_min`;
-- `delivery_efficiency_pct`;
-- расписание.
+### SecurityManager
 
-Расход хранится целым числом **мл/мин**, а не float. Это даёт стабильное бинарное представление в NVS.
+Commissioning credential намеренно отделён от основной конфигурации:
 
-Старые устройства совместимы: отсутствующие новые keys получают безопасные defaults без сброса Wi‑Fi и расписания.
+- namespace: `hydrosec`;
+- key создаётся из `esp_random()`;
+- 10 символов из читаемого 32-символьного алфавита;
+- используется как WPA2 password setup AP;
+- переживает reboot/OTA;
+- не входит в `/api/config` и обычный backup;
+- constant-time `verify()` оставлен как простой building block для будущей auth, но HTTP auth в текущем этапе не включена.
 
 ### Scheduler
 
-Scheduler — единственный runtime-источник расписания для автоматики, OLED и Serial.
-
-`setEnabled(false)`:
-
-- сохраняет расписание без изменений;
-- запрещает новые schedule-start;
-- помечает текущую минуту обработанной.
-
-`setEnabled(true)` также потребляет текущую минуту, поэтому возобновление режима не создаёт «догоняющий» полив.
+Единственный runtime-источник расписания для автоматики, OLED и Serial. Pause/resume помечает текущую минуту обработанной, поэтому пропущенный slot не запускается задним числом.
 
 ### RelayController
 
-RelayController знает не только ON/OFF, но и источник текущего цикла:
-
-- `schedule`;
-- `web_manual`;
-- `button_manual`;
-- `calibration`.
-
-Все циклы идут через `runFor()` и ограничиваются `MAX_WATERING_SECONDS`.
-
-Остановка получает явную причину:
-
-- manual;
-- timeout;
-- reboot;
-- OTA;
-- automation paused.
-
-Это позволяет объяснять оператору причину действия и формировать корректный журнал.
+Каждый start имеет timeout и источник `schedule / web_manual / button_manual / calibration`. Stop получает явную причину `manual / timeout / reboot / ota / automation_paused`.
 
 ### EventLog
 
-`EventLog` — кольцевой буфер на **32 события в RAM**.
+Кольцевой буфер на 32 события **в RAM**. Persistent журнал намеренно не строится поверх NVS; долговременная telemetry должна иметь отдельный wear-aware storage.
 
-Записываются boot, pump start/stop, pause/resume, schedule change, hydraulics save, config change, OTA и reboot request.
+## Safety invariants
 
-Каждая запись содержит:
-
-- sequence;
-- uptime;
-- локальный epoch, если NTP уже есть;
-- event type;
-- pump source;
-- stop reason;
-- одно числовое value.
-
-Почему RAM-only: типовая установка может выполнять десятки циклов в сутки. Записывать каждый start/stop в NVS — неправильный способ строить историю и лишний износ flash. Долговременный event/sensor log должен появиться как отдельный кольцевой storage-контур вместе с телеметрией.
-
-## Инварианты безопасности
-
-### Boot
-
-GPIO насоса принудительно OFF до работы Scheduler. Удерживаемая во время reset BOOT-кнопка не интерпретируется как start до первого release.
-
-### Ограниченное время работы
-
-Любой программный start имеет timeout. Бессрочного relay-ON состояния нет.
-
-### OTA / reboot
-
-Перед reboot и OTA насос выключается с соответствующей причиной.
-
-### Физическая кнопка
-
-- active pump → stop немедленно;
-- inactive pump → start только после hold;
-- короткое случайное касание не запускает насос.
-
-### Пауза автоматики
-
-При переводе в maintenance mode:
-
-- новый schedule-start запрещён;
-- если прямо сейчас выполняется **schedule**-цикл, он останавливается;
-- ручной/calibration цикл скрыто не прерывается;
-- график остаётся в NVS.
-
-### Калибровка
-
-`/api/calibration/start` разрешён только если:
-
-- automation paused;
-- relay OFF;
-- test duration 5–120 s.
-
-Это не заменяет аппаратный level/flow interlock, но не позволяет калибровочному тесту пересекаться с активным таймером.
+- pump OFF после boot;
+- любой software-start ограничен временем;
+- BOOT: hold для start, одно действие для stop;
+- reboot/OTA сначала останавливают pump;
+- maintenance pause не удаляет schedule;
+- calibration не запускается поверх timer automation;
+- restore оставляет automation paused по умолчанию;
+- сохранённый Q — calibration constant, **не live flow feedback**.
 
 ## Гидравлическая калибровка
 
-Web flow:
+Web wizard делает серию коротких измерений через мерную ёмкость:
 
-1. pause automation;
-2. подготовить мерную ёмкость;
-3. включить pump на известное `t`;
-4. измерить `V` мл;
-5. вычислить `Q = V × 60 / t / 1000` л/мин;
-6. сохранить Q и delivery efficiency;
-7. использовать Q как вход инженерного расчёта.
+```text
+Qi = Vml × 60 / tsec / 1000
+Qmean = ΣQi / n
+CV = sample_stddev(Qi) / Qmean × 100%
+```
 
-Калибровка измеряет **фактическую гидравлику установки**, но не водопотребление культуры.
-
-## NVS validation
-
-Проверяются UTC offset, число/размер schedule slots, диапазоны времени/длительности, flow и efficiency. Повреждённое расписание заменяется factory fallback; отдельные новые параметры возвращаются к безопасным defaults.
+Сохраняются mean Q, efficiency, sample count, CV, timestamp и protocol version. CV характеризует только repeatability серии.
 
 ## Сеть
 
 ### STA
 
-Домашняя LAN, `hydro.local`, NTP и web UI.
+Домашняя LAN → `hydro.local` + NTP + Web UI.
 
-### Provisioning AP
+### Protected commissioning AP
 
 ```text
 SSID: HydroESP-Setup
+KEY:  OLED / Serial
 URL:  http://192.168.4.1
 ```
 
-После сохранения Wi‑Fi устройство reboot и повторяет STA flow.
+После сохранения домашнего Wi‑Fi устройство reboot и снова пробует STA.
 
-## Web UI как операторская панель
+## Web UI
 
-Основные UX-инварианты:
+UX-инварианты:
 
-- режим автоматики виден на первом экране;
-- pausing не спрятан в settings;
-- pump start требует hold, stop — одно действие;
-- источник текущего запуска отображается;
-- calibration оформлена как мастер, а не набор несвязанных полей;
+- automation state виден сразу;
+- start требует hold, stop — одно действие;
 - schedule import создаёт draft;
-- restore через CLI оставляет automation paused по умолчанию;
-- dangerous actions используют собственный modal;
-- responsive desktop/mobile layouts и reduced-motion;
-- runtime errors показываются toast/inline состояниями, не native alerts.
+- calibration оформлена как мастер;
+- ошибки — toast/inline, без native `alert/confirm`;
+- desktop/mobile layouts и reduced-motion;
+- screenshots README строятся автоматически из **этого же embedded HTML** с mock API.
 
-CI извлекает embedded HTML, выполняет `node --check`, ищет duplicate ids и запрещает `alert()`/`confirm()`.
+CI проверяет embedded JS, duplicate ids, собирает firmware и рендерит воспроизводимые UI screenshots.
 
-## Расписание
+## Что намеренно не реализовано
 
-Единый предел: `MAX_SCHEDULE_SLOTS = 48`.
-
-```cpp
-struct WateringSlot {
-    uint8_t hour;
-    uint8_t minute;
-    uint16_t duration_sec;
-};
-```
-
-API/UI запрещают duplicate `HH:MM`.
-
-## Инженерный расчёт
-
-Разделены:
-
-1. гидравлика — фактический Q → время подачи требуемого объёма;
-2. атмосферный спрос — VPD как diagnostic indicator.
-
-VPD не масштабирует water duration автоматически. Adaptive v2 должен добавить реальные RAD/PPFD, level, flow, root-zone/drainage и safety interlocks.
-
-## API versioning
-
-`HYDRO_API_VERSION = 3` соответствует появлению operational mode, hydraulic calibration и current-session event log. Клиенты обязаны проверять версию контракта.
-
-Build также получает `HYDRO_VERSION` и `HYDRO_BUILD_SHA` через `scripts/build_flags.py`.
-
-## Release pipeline
-
-Tag `v*` → GitHub Actions → PlatformIO build → versioned `.bin` + `latest.bin` + SHA-256 → GitHub Release.
-
-PR CI проверяет maintenance tooling, embedded JS/UI и реальную firmware build.
-
-## Осознанно не реализовано
-
-- аппаратный dry-run/low-level interlock;
-- подтверждение фактического потока в реальном времени;
-- persistent sensor/event history;
+- minimum-level/dry-run interlock;
+- live flow/current confirmation;
+- persistent sensor history;
 - RTC holdover;
 - adaptive irrigation;
-- signed OTA;
-- automatic post-boot rollback;
-- web authentication.
+- web authentication/TLS;
+- device-side signed OTA;
+- automatic rollback.
 
-Эти функции должны вводиться как отдельные проверяемые контуры, а не декоративные элементы UI.
+Приоритет следующего аппаратного этапа: `level + live flow + исправленное питание/brown-out`.
