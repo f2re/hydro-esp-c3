@@ -10,6 +10,10 @@ public:
     void setProgress(size_t current, size_t total);
     void end(bool success);
 
+    // Schedule a reboot outside the AsyncWebServer callback. This gives the
+    // final HTTP acknowledgement time to leave the TCP stack before reset.
+    void scheduleRestart(uint32_t delayMs = 1500);
+
 private:
     // HTTP OTA callbacks can run outside the main loop task. These are simple
     // aligned scalar state flags shared with the display/control loop.
