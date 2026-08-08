@@ -28,8 +28,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile tools/hydroctl.py tools/check_web_ui.py tools/export_ui_preview.py scripts/build_flags.py
+          python -m py_compile tools/hydroctl.py tools/check_web_ui.py tools/export_ui_preview.py tools/make_factory_image.py scripts/build_flags.py
           python tools/hydroctl.py --help >/dev/null
+          python tools/make_factory_image.py --help >/dev/null
           sh -n install.sh update.sh
 
       - name: Check embedded web UI
@@ -54,12 +55,16 @@ jobs:
       - name: Build ESP32-C3 firmware
         run: pio run
 
+      - name: Build factory image
+        run: python tools/make_factory_image.py .artifacts/hydro-esp-c3-factory.bin
+
       - name: Upload firmware and UI preview
         uses: actions/upload-artifact@v4
         with:
           name: hydro-esp-c3-${{ github.sha }}
           path: |
             .pio/build/esp32c3_supermini/firmware.bin
+            .artifacts/hydro-esp-c3-factory.bin
             .artifacts/ui-preview.html
             .artifacts/ui-desktop-overview.png
             .artifacts/ui-desktop-hydraulics.png
