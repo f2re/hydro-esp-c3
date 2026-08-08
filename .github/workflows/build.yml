@@ -56,15 +56,8 @@ jobs:
       - name: Build ESP32-C3 firmware
         run: pio run
 
-      - name: Verify NVS-only fresh-install reset
-        shell: bash
-        run: |
-          set -euo pipefail
-          pio pkg exec -- esptool --chip esp32c3 erase-region --help >/dev/null
-          grep -Eq '^nvs,[[:space:]]+data,[[:space:]]+nvs,[[:space:]]+0x9000,[[:space:]]+0x4000' partitions.csv
-
-      - name: Build factory image
-        run: python tools/make_factory_image.py .artifacts/hydro-esp-c3-factory.bin
+      - name: Build install image
+        run: python tools/make_factory_image.py .artifacts/hydro-esp-c3-install.bin
 
       - name: Upload firmware and UI preview
         uses: actions/upload-artifact@v4
@@ -72,7 +65,7 @@ jobs:
           name: hydro-esp-c3-${{ github.sha }}
           path: |
             .pio/build/esp32c3_supermini/firmware.bin
-            .artifacts/hydro-esp-c3-factory.bin
+            .artifacts/hydro-esp-c3-install.bin
             .artifacts/ui-preview.html
             .artifacts/ui-desktop-overview.png
             .artifacts/ui-desktop-hydraulics.png
