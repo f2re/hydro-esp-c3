@@ -10,7 +10,9 @@ public:
     void ensureConnected(const char* ssid, const char* pass);
     String localIP();
 
-    bool startAP(const char* ap_ssid, const char* ap_pass);
+    // Setup network is intentionally open: first installation must require
+    // only selecting HydroESP-Setup and opening the local page.
+    bool startAP(const char* ap_ssid);
     void updateDNS();
     bool isAPMode() const { return ap_mode; }
 

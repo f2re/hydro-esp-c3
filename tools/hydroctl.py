@@ -135,17 +135,21 @@ def command_install(args) -> None:
     env = build_env(args)
     if args.clean:
         run([pio, "run", "-t", "clean"], env=env)
+
+    # Build first: never erase a working controller if the source does not compile.
     run([pio, "run"], env=env)
+
+    # Installation is intentionally non-destructive: no flash/NVS erase.
+    # A new board enters HydroESP-Setup; a configured board keeps its settings.
     cmd = [pio, "run", "-t", "upload"]
     if args.port:
         cmd += ["--upload-port", args.port]
     run(cmd, env=env)
-    say("flash completed")
-    if args.factory_wifi:
-        say("Open http://hydro.local after the controller joins Wi-Fi")
-    else:
-        say("First boot: HydroESP-Setup is protected; read the KEY on OLED or Serial")
-        say("Then connect to HydroESP-Setup and open http://192.168.4.1")
+
+    say("installation complete")
+    say("Open the address shown on OLED")
+    if not args.factory_wifi:
+        say("New/unconfigured board: Wi-Fi 'HydroESP-Setup' (no password), http://192.168.4.1")
 
 
 def command_monitor(args) -> None:

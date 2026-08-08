@@ -2,23 +2,22 @@
 
 ## Принцип
 
-HydroESP-C3 — local-first контроллер. Полив живёт на ESP32-C3 и не зависит от браузера или облака. Web UI — операторская панель над локальным состоянием.
+HydroESP-C3 — local-first контроллер. Полив работает на ESP32-C3 и не зависит от браузера или облака. Web UI — локальная операторская панель.
 
-Второй принцип: обслуживание — отдельный режим. Automation можно поставить на паузу без удаления расписания; calibration выполняется только в этом состоянии.
+Установка намеренно простая: если домашний Wi‑Fi не настроен, устройство поднимает открытую `HydroESP-Setup` и сразу отдаёт Web UI на `192.168.4.1`.
 
 ## Основные модули
 
 ```text
 main.cpp
  ├─ ConfigStorage      NVS: Wi‑Fi, UTC, location, schedule, hydraulics
- ├─ SecurityManager    отдельный commissioning credential
- ├─ WiFiManager        STA / protected setup AP / captive DNS
+ ├─ WiFiManager        STA / open setup AP / captive DNS
  ├─ NTPManager         время + sunrise/sunset helper
  ├─ RelayController    timeout + pump source/reason
  ├─ Scheduler          timer automation + pause
  ├─ EventLog           короткий RAM-журнал сессии
  ├─ WebServerManager   API v3 + embedded UI + OTA
- ├─ OledDisplay        status / OTA / commissioning recovery
+ ├─ OledDisplay        status / IP / OTA / setup
  └─ StatusDisplay      Serial dashboard
 ```
 
@@ -28,12 +27,15 @@ main.cpp
 2. Загружается и валидируется NVS.
 3. Инициализируются Scheduler, RelayController и EventLog.
 4. Выполняется попытка подключения к сохранённому Wi‑Fi.
-5. Если STA недоступна, запускается **защищённый** `HydroESP-Setup`.
-6. Device key берётся из отдельного `hydrosec` namespace и показывается на OLED/Serial.
-7. Запускаются NTP, HTTP API и mDNS.
-8. Основной loop обслуживает сеть, таймер, насос, кнопку, OLED и Serial.
+5. Если STA недоступна, запускается открытая `HydroESP-Setup`.
+6. HTTP сервер запускается сразу после готовности сети.
+7. В STA-режиме запускаются mDNS и NTP.
+8. OLED/Serial показывают прямой numeric IP.
+9. Основной loop обслуживает сеть, таймер, насос, кнопку, OLED и Serial.
 
-## Долгоживущая конфигурация
+HTTP специально не зависит от NTP: страница настройки должна открываться даже без интернета.
+
+## Конфигурация
 
 `ConfigStorage` хранит:
 
@@ -44,7 +46,7 @@ main.cpp
 - hydraulic Q/efficiency + calibration metadata;
 - расписание до 48 слотов.
 
-Commissioning key хранится **отдельно** в `SecurityManager`, чтобы не смешивать его с домашним Wi‑Fi и обычным backup.
+Обычные `install` и `update` не стирают NVS. Новое устройство без сохранённого SSID попадает в setup AP; ранее настроенное продолжает использовать сохранённую LAN-конфигурацию.
 
 ## Инварианты управления
 
@@ -56,38 +58,18 @@ Commissioning key хранится **отдельно** в `SecurityManager`, ч
 - resume не запускает пропущенный слот задним числом;
 - Scheduler — единый runtime-источник расписания для Web/OLED/Serial.
 
-## Гидравлическая калибровка
-
-Калибровка измеряет реальный расход установки серией коротких тестов. Сохраняются mean Q, efficiency, sample count, CV, timestamp и protocol version.
-
-Это **не** модель водопотребления растения. Adaptive mode должен появляться только после реальных level/flow/T-RH/light/root-zone измерений.
-
 ## Web UI
 
-`src/web_ui_v2.h` self-contained: внешние CDN не нужны.
+`src/web_ui_v2.h` self-contained: внешние CDN не нужны. В AP-режиме wildcard DNS и `onNotFound` помогают открыть локальную страницу без отдельного backend.
 
-UX-инварианты:
+## Flash / update
 
-- desktop sidebar / mobile bottom navigation;
-- automation state виден сразу;
-- dangerous start требует удержания;
-- schedule import создаёт draft;
-- calibration оформлена мастером;
-- ошибки показываются inline/toast, без native `alert/confirm`;
-- UI screenshots в README воспроизводимо рендерятся из этого же embedded HTML.
+CI проверяет application image и merged install image. Технические bootloader/partition offsets скрыты от обычного пользователя: стандартный `install.sh` всё делает сам, а для ручного flasher публикуется один `hydro-esp-c3-install.bin`.
 
-## OTA
-
-OTA останавливает pump и показывает progress в Web/OLED. Release updater проверяет SHA-256 на стороне клиента. Device-side signed OTA и automatic rollback пока не реализованы.
-
-## Осознанно не реализовано
+## Следующие реальные улучшения
 
 - minimum-level/dry-run interlock;
-- live flow/current confirmation;
-- persistent sensor history;
-- RTC holdover;
-- полноценный adaptive irrigation;
-- отдельная web-auth/TLS;
-- device-side signed OTA/rollback.
-
-Эти функции добавляются отдельными проверяемыми этапами, а не декоративными флагами в UI.
+- live flow confirmation;
+- T/RH и температура раствора;
+- persistent sensor history только при необходимости;
+- adaptive irrigation только после реальных измерений.

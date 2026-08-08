@@ -1,6 +1,6 @@
 # Changelog
 
-Значимые изменения HydroESP-C3 фиксируются здесь. Версии выпускаются тегами `vMAJOR.MINOR.PATCH`; release firmware и checksum формирует GitHub Actions.
+Значимые изменения HydroESP-C3 фиксируются здесь. Версии выпускаются тегами `vMAJOR.MINOR.PATCH`.
 
 ## Unreleased
 
@@ -8,46 +8,51 @@
 
 - responsive desktop/mobile Web UI без CDN;
 - timer automation с persisted maintenance pause;
-- source/reason tracking для pump cycles и RAM session log;
-- серийная hydraulic calibration: mean Q, CV, timestamp, protocol version;
+- source/reason tracking и RAM session log;
+- серийная hydraulic calibration;
 - `hydroctl` для install/doctor/status/pause/resume/backup/restore/update;
-- diagnostics, OTA progress в Web/OLED и release pipeline;
-- координаты установки, sunrise/sunset helper и отметка обслуживания раствора;
-- защищённый commissioning AP `HydroESP-Setup` с отдельным device key;
-- OLED/Serial recovery для commissioning key;
-- визуальный README с desktop/mobile screenshots;
-- CI-render screenshots из реального embedded UI с mock API.
+- numeric Web IP на OLED/Serial;
+- единый `hydro-esp-c3-install.bin` для ручной recovery/factory прошивки;
+- visual README и воспроизводимые UI screenshots.
 
 ### Changed
 
-- restore остаётся fail-safe: automation paused до явного resume;
-- `WiFiManager::startAP()` не запускает commissioning без валидного ключа;
-- commissioning credential хранится отдельно от основной NVS-конфигурации;
-- README/INSTALL/SECURITY/ARCHITECTURE/AUDIT синхронизированы с текущим runtime;
-- полезные функции `enhance hydro controls` сохранены при интеграции security/UI изменений.
+- setup новой платы упрощён до `HydroESP-Setup → 192.168.4.1 → домашний Wi‑Fi`;
+- `HydroESP-Setup` снова открытая сеть без device key и дополнительных паролей;
+- обычный USB `install` теперь не выполняет erase flash/NVS и сохраняет существующие настройки;
+- ранее настроенная плата после reinstall сразу возвращается в сохранённую LAN, а numeric IP показывается на OLED/Serial;
+- `update` сохраняет Wi‑Fi, расписание и калибровку;
+- HTTP стартует до NTP и не зависит от доступа к Интернету;
+- release/build проверяют корректный flash layout, но технические детали скрыты от обычной установки.
+
+### Removed
+
+- `SecurityManager`;
+- commissioning/operator key;
+- отдельный `hydrosec` credential flow;
+- необходимость искать key на OLED/Serial при первой установке;
+- автоматический erase/reset настроек из обычного `install`.
 
 ### Fixed
 
-- потеря schedule slots из-за старого frontend limit;
-- выдача Wi‑Fi password через read API;
-- blocking Wi‑Fi reconnect;
-- rollover relay timeout/progress;
-- догоняющий schedule-cycle после manual overlap/resume;
+- конфликт OTA metadata / `boot_app0` в старом flash layout;
+- возможность принять application `firmware.bin` за полный install image;
+- неоднозначность адреса Web UI: полный IP теперь виден на OLED/Serial;
+- зависимость setup Web UI от NTP;
 - рассинхронизация OLED/Serial с runtime schedule;
-- случайный pump start коротким BOOT press;
-- открытый fallback commissioning AP.
+- догоняющий schedule-cycle после manual overlap/resume;
+- случайный pump start коротким BOOT press.
 
 ### Known limits
 
 - нет hardware minimum-level/live-flow interlock;
 - brown-out workaround ещё требует аппаратного устранения причины;
-- локальный HTTP пока без отдельной пользовательской auth;
-- OTA пока без device-side signature verification/automatic rollback;
+- Web UI/API рассчитаны на доверенную LAN;
 - adaptive irrigation не включается без реальных sensor streams.
 
 ## Перед стабильным release
 
 1. зелёный CI на `main`;
-2. USB install → protected commissioning → schedule → pause/resume → calibration → backup/restore → OTA smoke-test;
-3. проверка реальной силовой части насоса;
-4. фиксация известных hardware/security ограничений в release notes.
+2. USB install новой платы → открытая `HydroESP-Setup` → Wi‑Fi setup → schedule → calibration → OTA smoke-test;
+3. USB reinstall настроенной платы → сохранение Wi‑Fi/расписания;
+4. проверка реальной силовой части насоса.

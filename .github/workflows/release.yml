@@ -31,7 +31,7 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
         run: pio run
 
-      - name: Prepare OTA and factory assets
+      - name: Prepare release assets
         shell: bash
         run: |
           set -euo pipefail
@@ -42,8 +42,10 @@ jobs:
           cp "$app" "dist/hydro-esp-c3-latest-ota.bin"
 
           python tools/make_factory_image.py "dist/hydro-esp-c3-${GITHUB_REF_NAME}-factory.bin"
+
+          # Human-facing one-file image for a clean USB/manual installation.
           cp "dist/hydro-esp-c3-${GITHUB_REF_NAME}-factory.bin" \
-             "dist/hydro-esp-c3-latest-factory.bin"
+             "dist/hydro-esp-c3-install.bin"
 
           cd dist
           sha256sum *.bin > hydro-esp-c3.sha256
