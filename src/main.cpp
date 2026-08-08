@@ -77,6 +77,11 @@ void updatePhysicalButton() {
 }
 
 void setup() {
+    // Hardware fail-safe first. This is intentionally the first GPIO action:
+    // the pump must be OFF even if NVS, OLED, Wi-Fi or HTTP initialization fails.
+    pinMode(RELAY_PIN, OUTPUT_OPEN_DRAIN);
+    digitalWrite(RELAY_PIN, RELAY_OFF);
+
 #if HYDRO_DISABLE_BROWNOUT_WORKAROUND
     WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 #endif
@@ -85,6 +90,7 @@ void setup() {
     delay(1000);
     Serial.printf("\n[HydroESP] %s (%s), API v%d\n",
                   HYDRO_VERSION, HYDRO_BUILD_SHA, HYDRO_API_VERSION);
+    Serial.println("[BOOT] relay forced OFF");
 
     pinMode(LED_PIN, OUTPUT);
     pinMode(BUTTON_PIN, INPUT_PULLUP);
@@ -92,15 +98,22 @@ void setup() {
     buttonRaw = buttonStable = digitalRead(BUTTON_PIN);
     buttonArmed = buttonStable == HIGH;
 
+    // Bring the local display up before touching NVS. A broken configuration
+    // must not turn into a completely black/undebuggable device.
+    oled.begin();
+    oled.drawBoot(1, "Boot...");
+    Serial.println("[BOOT] OLED initialized");
+
     configStorage.begin();
     configStorage.load(appConfig);
+    Serial.println("[BOOT] config loaded");
     eventLog.begin(&ntpMgr);
 
-    oled.begin();
     serial.printBoot();
     oled.drawBoot(1, "Init...");
 
     relay.begin(&eventLog);
+    Serial.println("[BOOT] relay controller ready/OFF");
     scheduler.begin(&relay, &ntpMgr);
     scheduler.updateConfig(appConfig.schedule, appConfig.schedule_count);
     scheduler.setEnabled(appConfig.automation_enabled);
