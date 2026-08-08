@@ -95,6 +95,7 @@ void OledDisplay::update(NTPManager* ntp, RelayController* relay,
 
     switch (_page) {
         case PAGE_CLOCK: drawPageClock(ntp, wifi); break;
+        case PAGE_NETWORK: drawPageNetwork(wifi); break;
         case PAGE_NEXT: drawPageNext(ntp, scheduler); break;
         case PAGE_SCHEDULE: drawPageSchedule(ntp, scheduler); break;
         default: _page = PAGE_CLOCK; break;
@@ -131,6 +132,25 @@ void OledDisplay::drawPageClock(NTPManager* ntp, WiFiManager* wifi) {
         _u8g2.drawStr(x(52), y(7), "NTP!");
     }
 
+    _u8g2.sendBuffer();
+}
+
+void OledDisplay::drawPageNetwork(WiFiManager* wifi) {
+    _u8g2.clearBuffer();
+    _u8g2.setFont(u8g2_font_5x7_tr);
+    _u8g2.drawStr(x(1), y(7), "WEB ADDRESS");
+    hline(10);
+
+    _u8g2.setFont(u8g2_font_4x6_tr);
+    if (wifi->isConnected()) {
+        const String ip = wifi->localIP();
+        _u8g2.drawStr(x(1), y(19), "OPEN IN BROWSER");
+        _u8g2.drawStr(x(1), y(27), ip.c_str());
+        _u8g2.drawStr(x(1), y(35), "or hydro.local");
+    } else {
+        _u8g2.drawStr(x(1), y(21), "WiFi offline");
+        _u8g2.drawStr(x(1), y(31), "check Serial");
+    }
     _u8g2.sendBuffer();
 }
 
