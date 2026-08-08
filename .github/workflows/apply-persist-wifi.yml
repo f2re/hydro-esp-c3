@@ -1,0 +1,27 @@
+name: Apply persistent install Wi-Fi
+
+on:
+  push:
+    branches: [agent/persist-install-wifi-20260808]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python tools/_patch_persist_wifi.py
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/hydroctl.py tools/check_install_wifi.py
+          python tools/check_install_wifi.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/hydroctl.py tools/check_install_wifi.py docs/INSTALL.md
+          git diff --cached --quiet && exit 0
+          git commit -m "Persist Wi-Fi entered during install"
+          git push
