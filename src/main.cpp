@@ -160,7 +160,12 @@ void setup() {
     if (wifiOk) {
         if (MDNS.begin(MDNS_HOST)) {
             MDNS.addService("http", "tcp", 80);
-            Serial.printf("[mDNS] http://%s.local\n", MDNS_HOST);
+            // ArduinoOTA itself does not own mDNS because hydro.local is shared
+            // with the Web UI. Advertise the standard Arduino OTA service on
+            // this existing responder so Arduino IDE/network discovery works.
+            MDNS.enableArduino(RECOVERY_OTA_PORT, false);
+            Serial.printf("[mDNS] http://%s.local; ArduinoOTA %u advertised\n",
+                          MDNS_HOST, RECOVERY_OTA_PORT);
         } else {
             Serial.println("[mDNS] unavailable; use the numeric IP shown above/OLED");
         }
