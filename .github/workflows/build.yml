@@ -83,6 +83,8 @@ jobs:
             --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-hydraulics.png "$BASE?tab=hydraulics"
           "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
             --window-size=390,844 --screenshot=.artifacts/ui-mobile-overview.png "$BASE"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
+            --window-size=390,844 --screenshot=.artifacts/ui-mobile-schedule.png "$SCHEDULE"
 
       - name: Build ESP32-C3 firmware
         run: pio run
@@ -103,5 +105,6 @@ jobs:
             .artifacts/ui-desktop-schedule.png
             .artifacts/ui-desktop-hydraulics.png
             .artifacts/ui-mobile-overview.png
+            .artifacts/ui-mobile-schedule.png
           if-no-files-found: error
           retention-days: 14
