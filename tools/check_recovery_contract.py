@@ -61,6 +61,8 @@ forbid("src/web_server.cpp", "ESP.restart();")
 require("src/ota_manager.h", "scheduleRestart")
 require("src/ota_manager.cpp", "esp_timer_start_once")
 require("src/ota_manager.cpp", "Keep the OTA latch active until the actual restart")
+require("src/ota_manager.cpp", "A pending reboot is a maintenance/safety state too")
+require("src/ota_manager.cpp", "updating = true;")
 require("src/ota_manager.cpp", "if (!updating || total == 0) return;")
 
 # Firmware keeps the independent ArduinoOTA channel and services it continuously.
