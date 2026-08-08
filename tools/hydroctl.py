@@ -139,20 +139,21 @@ def command_install(args) -> None:
     # Build first: never erase a working controller if the source does not compile.
     run([pio, "run"], env=env)
 
-    # `install` means a predictable first installation. Old NVS/Wi-Fi settings
-    # are removed so the next boot always opens HydroESP-Setup. Use
-    # --keep-settings only for an intentional USB reinstall.
-    if not args.keep_settings:
-        say("fresh install: clearing old controller settings")
-        erase = [pio, "run", "-t", "erase"]
-        if args.port:
-            erase += ["--upload-port", args.port]
-        run(erase, env=env)
-
     cmd = [pio, "run", "-t", "upload"]
     if args.port:
         cmd += ["--upload-port", args.port]
     run(cmd, env=env)
+
+    # A fresh install clears only the NVS partition, not the whole flash.
+    # The uploaded app/bootloader remain intact and the next boot predictably
+    # enters HydroESP-Setup with factory defaults.
+    if not args.keep_settings:
+        say("fresh install: clearing saved Wi-Fi/settings")
+        erase = [pio, "pkg", "exec", "--", "esptool", "--chip", "esp32c3"]
+        if args.port:
+            erase += ["--port", args.port]
+        erase += ["erase-region", "0x9000", "0x4000"]
+        run(erase, env=env)
 
     say("installation complete")
     if args.factory_wifi:
