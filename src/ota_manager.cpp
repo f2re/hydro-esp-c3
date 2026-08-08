@@ -38,12 +38,18 @@ void OTAManager::end(bool success) {
 void OTAManager::scheduleRestart(uint32_t delayMs) {
     if (delayMs < 250) delayMs = 250;
 
+    // A pending reboot is a maintenance/safety state too. Stop the ordinary
+    // application loop immediately so a schedule slot or button press cannot
+    // start the pump during the short ACK -> reboot window.
+    updating = true;
+
     if (!restartTimer) {
         esp_timer_create_args_t args{};
         args.callback = &restartTimerCallback;
         args.name = "hydro-restart";
         if (esp_timer_create(&args, &restartTimer) != ESP_OK) {
             Serial.println("[OTA] ERROR: cannot create deferred restart timer");
+            updating = false;
             return;
         }
     }
@@ -52,6 +58,7 @@ void OTAManager::scheduleRestart(uint32_t delayMs) {
     esp_timer_stop(restartTimer);
     if (esp_timer_start_once(restartTimer, static_cast<uint64_t>(delayMs) * 1000ULL) != ESP_OK) {
         Serial.println("[OTA] ERROR: cannot schedule deferred restart");
+        updating = false;
     }
 }
 
