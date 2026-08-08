@@ -39,6 +39,8 @@ private:
     uint32_t _lastSwitch = 0;
     uint8_t _animFrame = 0;
     uint32_t _lastAnim = 0;
+    int16_t _lastOtaProgress = -1;
+    uint32_t _lastOtaDraw = 0;
 
     inline int x(int localX) const { return localX + X_OFFSET; }
     inline int y(int localY) const { return localY + Y_OFFSET; }
