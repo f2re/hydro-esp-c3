@@ -37,8 +37,6 @@ void WiFiManager::ensureConnected(const char* ssid, const char* pass) {
     if (static_cast<uint32_t>(now - lastReconnectAttempt) < WIFI_RETRY_INTERVAL_MS) return;
     lastReconnectAttempt = now;
 
-    // Non-blocking reconnect: irrigation, OLED and timers keep running while the
-    // Wi-Fi stack negotiates in the background.
     Serial.printf("[WiFi] Background reconnect to %s\n", ssid);
     WiFi.mode(WIFI_STA);
     WiFi.disconnect(false);
@@ -49,13 +47,26 @@ String WiFiManager::localIP() {
     return ap_mode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
 }
 
-void WiFiManager::startAP(const char* ap_ssid, const char* ap_pass) {
-    Serial.printf("[WiFi] Starting provisioning AP: %s\n", ap_ssid);
+bool WiFiManager::startAP(const char* ap_ssid, const char* ap_pass) {
+    if (ap_ssid == nullptr || strlen(ap_ssid) == 0 ||
+        ap_pass == nullptr || strlen(ap_pass) < 8) {
+        Serial.println("[WiFi] Refusing to start unprotected provisioning AP");
+        ap_mode = false;
+        return false;
+    }
+
+    Serial.printf("[WiFi] Starting protected provisioning AP: %s\n", ap_ssid);
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(ap_ssid, ap_pass);
+    if (!WiFi.softAP(ap_ssid, ap_pass)) {
+        Serial.println("[WiFi] Failed to start provisioning AP");
+        ap_mode = false;
+        return false;
+    }
+
     dnsServer.start(53, "*", WiFi.softAPIP());
     ap_mode = true;
     Serial.printf("[WiFi] Provisioning URL: http://%s\n", WiFi.softAPIP().toString().c_str());
+    return true;
 }
 
 void WiFiManager::updateDNS() {

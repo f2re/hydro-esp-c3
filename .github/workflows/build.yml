@@ -28,20 +28,41 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile tools/hydroctl.py tools/check_web_ui.py scripts/build_flags.py
+          python -m py_compile tools/hydroctl.py tools/check_web_ui.py tools/export_ui_preview.py scripts/build_flags.py
           python tools/hydroctl.py --help >/dev/null
           sh -n install.sh update.sh
 
       - name: Check embedded web UI
         run: python tools/check_web_ui.py
 
+      - name: Export UI preview
+        run: python tools/export_ui_preview.py .artifacts/ui-preview.html --mock
+
+      - name: Render UI screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          BASE="file://${GITHUB_WORKSPACE}/.artifacts/ui-preview.html"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
+            --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-overview.png "$BASE"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
+            --window-size=1440,1120 --screenshot=.artifacts/ui-desktop-hydraulics.png "$BASE?tab=hydraulics"
+          "$CHROME" --headless --no-sandbox --disable-gpu --hide-scrollbars --virtual-time-budget=2500 \
+            --window-size=390,844 --screenshot=.artifacts/ui-mobile-overview.png "$BASE"
+
       - name: Build ESP32-C3 firmware
         run: pio run
 
-      - name: Upload firmware artifact
+      - name: Upload firmware and UI preview
         uses: actions/upload-artifact@v4
         with:
           name: hydro-esp-c3-${{ github.sha }}
-          path: .pio/build/esp32c3_supermini/firmware.bin
+          path: |
+            .pio/build/esp32c3_supermini/firmware.bin
+            .artifacts/ui-preview.html
+            .artifacts/ui-desktop-overview.png
+            .artifacts/ui-desktop-hydraulics.png
+            .artifacts/ui-mobile-overview.png
           if-no-files-found: error
           retention-days: 14
