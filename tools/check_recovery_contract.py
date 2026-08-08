@@ -66,8 +66,12 @@ require("src/ota_manager.cpp", "updating = true;")
 require("src/ota_manager.cpp", "if (!updating || total == 0) return;")
 
 # Firmware keeps the independent ArduinoOTA channel and services it continuously.
+# ArduinoOTA does not own a second mDNS responder; the shared hydro.local
+# responder advertises the standard Arduino service for IDE/network discovery.
+require("src/recovery_ota.h", "RECOVERY_OTA_PORT = 3232")
 require("src/main.cpp", "recoveryOTA.begin")
 require("src/main.cpp", "recoveryOTA.handle")
+require("src/main.cpp", "MDNS.enableArduino(RECOVERY_OTA_PORT, false)")
 require("src/recovery_ota.cpp", "ArduinoOTA.setMdnsEnabled(false)")
 require("src/recovery_ota.cpp", "ArduinoOTA.begin()")
 require("src/recovery_ota.cpp", "ArduinoOTA.handle()")
@@ -79,5 +83,5 @@ require("src/main.cpp", "OTA callbacks own the progress screen")
 
 print(
     "recovery/deploy contract: OK "
-    "(streaming progress + final HTTP ack + verified reboot + ArduinoOTA fallback)"
+    "(streaming progress + final HTTP ack + verified reboot + ArduinoOTA discovery/fallback)"
 )
