@@ -14,5 +14,5 @@ if [ "${1:-}" = "--pull" ]; then
     shift
 fi
 
-echo "[deploy] Reusing PlatformIO packages from ~/.platformio and build cache from ~/.platformio/build-cache"
-exec "$PYTHON" "$ROOT/tools/hydroctl.py" install "$@"
+echo "[deploy] Repeat deployment: cached toolchain, stored Wi-Fi/NVS preserved"
+exec "$PYTHON" "$ROOT/tools/usb_deploy.py" "$@"
