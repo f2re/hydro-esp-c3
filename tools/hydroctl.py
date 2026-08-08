@@ -135,17 +135,31 @@ def command_install(args) -> None:
     env = build_env(args)
     if args.clean:
         run([pio, "run", "-t", "clean"], env=env)
+
+    # Build first: never erase a working controller if the source does not compile.
     run([pio, "run"], env=env)
+
+    # `install` means a predictable first installation. Old NVS/Wi-Fi settings
+    # are removed so the next boot always opens HydroESP-Setup. Use
+    # --keep-settings only for an intentional USB reinstall.
+    if not args.keep_settings:
+        say("fresh install: clearing old controller settings")
+        erase = [pio, "run", "-t", "erase"]
+        if args.port:
+            erase += ["--upload-port", args.port]
+        run(erase, env=env)
+
     cmd = [pio, "run", "-t", "upload"]
     if args.port:
         cmd += ["--upload-port", args.port]
     run(cmd, env=env)
-    say("flash completed")
+
+    say("installation complete")
     if args.factory_wifi:
-        say("Open http://hydro.local after the controller joins Wi-Fi")
+        say("Open http://hydro.local or the numeric IP shown on OLED")
     else:
-        say("First boot: HydroESP-Setup is protected; read the KEY on OLED or Serial")
-        say("Then connect to HydroESP-Setup and open http://192.168.4.1")
+        say("Connect to Wi-Fi 'HydroESP-Setup' (no password)")
+        say("Open http://192.168.4.1")
 
 
 def command_monitor(args) -> None:
@@ -403,6 +417,8 @@ def parser() -> argparse.ArgumentParser:
         s.add_argument("--timezone", type=int, choices=range(-12, 15), metavar="UTC", help="factory UTC offset (-12..14)")
         if name == "install":
             s.add_argument("--port", help="serial port; auto-detected when omitted")
+            s.add_argument("--keep-settings", action="store_true",
+                           help="USB reinstall without clearing saved Wi-Fi/settings")
         s.set_defaults(func=func)
 
     s = sub.add_parser("monitor", help="open 115200 baud serial monitor")
