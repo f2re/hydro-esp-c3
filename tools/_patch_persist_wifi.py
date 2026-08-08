@@ -17,14 +17,9 @@ if old2 not in s:
 s = s.replace(old2, new2, 1)
 path.write_text(s, encoding='utf-8')
 
+# Keep regression coverage explicit and simple.
 test = ROOT / 'tools' / 'check_install_wifi.py'
-t = test.read_text(encoding='utf-8')
-marker = 'print("install-wifi check: OK")\n'
-extra = '''# Interactive credentials are persisted locally and round-trip safely.\norig_root = hydroctl.ROOT\ntry:\n    hydroctl.ROOT = tmp\n    hydroctl.save_wifi_dotenv("saved net", "p@ss # with spaces")\n    persisted = {}\n    hydroctl.load_dotenv(persisted)\n    assert persisted["WIFI_SSID"] == "saved net"\n    assert persisted["WIFI_PASSWORD"] == "p@ss # with spaces"\nfinally:\n    hydroctl.ROOT = orig_root\n\n'''
-if marker not in t:
-    raise SystemExit('test marker not found')
-t = t.replace(marker, extra + marker, 1)
-test.write_text(t, encoding='utf-8')
+test.write_text('''#!/usr/bin/env python3\n"""Regression checks for install Wi-Fi env/.env resolution and persistence."""\n\nfrom __future__ import annotations\n\nimport importlib.util\nimport os\nfrom pathlib import Path\nimport tempfile\n\nROOT = Path(__file__).resolve().parents[1]\nSPEC = importlib.util.spec_from_file_location("hydroctl", ROOT / "tools/hydroctl.py")\nassert SPEC and SPEC.loader\nhydroctl = importlib.util.module_from_spec(SPEC)\nSPEC.loader.exec_module(hydroctl)\n\nclass Args:\n    timezone = None\n\nsaved_root = hydroctl.ROOT\nsaved = {key: os.environ.get(key) for key in ("WIFI_SSID", "WIFI_PASSWORD", "TIMEZONE_OFFSET", "WIFI_SEED_ID")}\ntry:\n    for key in saved:\n        os.environ.pop(key, None)\n\n    with tempfile.TemporaryDirectory(prefix="hydro-wifi-test-") as tmp:\n        hydroctl.ROOT = Path(tmp)\n        (hydroctl.ROOT / ".env").write_text(\n            "WIFI_SSID=dotenv-net\\nWIFI_PASSWORD=dotenv-pass\\nTIMEZONE_OFFSET=2\\n",\n            encoding="utf-8",\n        )\n\n        env = hydroctl.build_env(Args(), prompt_wifi=True)\n        assert env["WIFI_SSID"] == "dotenv-net"\n        assert env["WIFI_PASSWORD"] == "dotenv-pass"\n        assert env["TIMEZONE_OFFSET"] == "2"\n        assert len(env["WIFI_SEED_ID"]) == 16\n\n        os.environ["WIFI_SSID"] = "shell-net"\n        os.environ["WIFI_PASSWORD"] = "shell-pass"\n        env = hydroctl.build_env(Args(), prompt_wifi=True)\n        assert env["WIFI_SSID"] == "shell-net"\n        assert env["WIFI_PASSWORD"] == "shell-pass"\n        assert len(env["WIFI_SEED_ID"]) == 16\n        os.environ.pop("WIFI_SSID", None)\n        os.environ.pop("WIFI_PASSWORD", None)\n\n        hydroctl.save_wifi_dotenv("saved net", "p@ss # with spaces")\n        persisted = {}\n        hydroctl.load_dotenv(persisted)\n        assert persisted["WIFI_SSID"] == "saved net"\n        assert persisted["WIFI_PASSWORD"] == "p@ss # with spaces"\n        if os.name != "nt":\n            assert (hydroctl.ROOT / ".env").stat().st_mode & 0o777 == 0o600\n\n    print("install-wifi check: OK")\nfinally:\n    hydroctl.ROOT = saved_root\n    for key, value in saved.items():\n        if value is None:\n            os.environ.pop(key, None)\n        else:\n            os.environ[key] = value\n''', encoding='utf-8')
 
 doc = ROOT / 'docs' / 'INSTALL.md'
 d = doc.read_text(encoding='utf-8')
