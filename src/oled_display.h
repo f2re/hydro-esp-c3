@@ -21,6 +21,7 @@ class OledDisplay {
 public:
     void begin();
     void drawBoot(uint8_t step, const char* msg);
+    void drawProvisioning(const String& ssid, const String& key, const String& ip);
     void update(NTPManager* ntp, RelayController* relay,
                 WiFiManager* wifi, Scheduler* scheduler);
     void showPage(DisplayPage page);
