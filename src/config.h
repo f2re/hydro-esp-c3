@@ -72,15 +72,19 @@ static_assert(SCHEDULE_COUNT <= MAX_SCHEDULE_SLOTS,
               "Factory schedule exceeds MAX_SCHEDULE_SLOTS");
 
 // ── Wi-Fi / time ─────────────────────────────────────────────────────────
-// Zero-config builds intentionally embed no Wi-Fi secret. First boot therefore
-// enters AP provisioning immediately. Optional factory credentials can be
-// injected by scripts/build_flags.py through WIFI_SSID/WIFI_PASSWORD env vars.
+// A normal release embeds no Wi-Fi secret and falls back to HydroESP-Setup.
+// install.sh/hydroctl can inject credentials from env/.env or an interactive
+// prompt. WIFI_SEED_ID makes those credentials a one-shot NVS seed.
 #ifndef WIFI_SSID
 #define WIFI_SSID ""
 #endif
 
 #ifndef WIFI_PASSWORD
 #define WIFI_PASSWORD ""
+#endif
+
+#ifndef WIFI_SEED_ID
+#define WIFI_SEED_ID ""
 #endif
 
 #ifndef TIMEZONE_OFFSET
