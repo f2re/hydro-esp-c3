@@ -105,17 +105,60 @@ def command_bootstrap(_args) -> None:
     say("toolchain ready")
 
 
-def build_env(args) -> dict[str, str]:
+def load_dotenv(env: dict[str, str]) -> None:
+    path = ROOT / ".env"
+    if not path.is_file():
+        return
+    allowed = {"WIFI_SSID", "WIFI_PASSWORD", "TIMEZONE_OFFSET"}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key not in allowed or key in env:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"\"", "'"}:
+            value = value[1:-1]
+        env[key] = value
+
+
+def build_env(args, *, prompt_wifi: bool = False) -> dict[str, str]:
     env = os.environ.copy()
+    load_dotenv(env)
+
     if getattr(args, "timezone", None) is not None:
         env["TIMEZONE_OFFSET"] = str(args.timezone)
-    if getattr(args, "factory_wifi", False):
-        ssid = input("Factory Wi-Fi SSID: ").strip()
-        if not ssid:
-            raise HydroError("SSID cannot be empty when --factory-wifi is used")
-        password = getpass.getpass("Factory Wi-Fi password (may be empty): ")
+
+    ssid = env.get("WIFI_SSID", "").strip()
+    password_set = "WIFI_PASSWORD" in env
+
+    if prompt_wifi and not ssid and sys.stdin.isatty():
+        ssid = input("Home Wi-Fi SSID (Enter = configure later via HydroESP-Setup): ").strip()
+        if ssid:
+            env["WIFI_SSID"] = ssid
+
+    if prompt_wifi and ssid and not password_set and sys.stdin.isatty():
+        env["WIFI_PASSWORD"] = getpass.getpass(
+            "Home Wi-Fi password (Enter if the network is open): "
+        )
+        password_set = True
+
+    if ssid:
         env["WIFI_SSID"] = ssid
-        env["WIFI_PASSWORD"] = password
+        env.setdefault("WIFI_PASSWORD", "")
+        if prompt_wifi:
+            # A new token makes installer-provided credentials apply once even
+            # when the controller already has older Wi-Fi settings in NVS.
+            env["WIFI_SEED_ID"] = uuid.uuid4().hex[:16]
+        say(f"Wi-Fi for this build: {ssid}")
+    elif prompt_wifi:
+        env.pop("WIFI_SSID", None)
+        env.pop("WIFI_PASSWORD", None)
+        env.pop("WIFI_SEED_ID", None)
+        say("Wi-Fi not supplied; first setup will use HydroESP-Setup")
+
     return env
 
 
@@ -132,7 +175,7 @@ def command_build(args) -> None:
 
 def command_install(args) -> None:
     pio = ensure_pio(True)
-    env = build_env(args)
+    env = build_env(args, prompt_wifi=True)
     if args.clean:
         run([pio, "run", "-t", "clean"], env=env)
 
@@ -147,9 +190,10 @@ def command_install(args) -> None:
     run(cmd, env=env)
 
     say("installation complete")
-    say("Open the address shown on OLED")
-    if not args.factory_wifi:
-        say("New/unconfigured board: Wi-Fi 'HydroESP-Setup' (no password), http://192.168.4.1")
+    if env.get("WIFI_SSID"):
+        say(f"Controller will try Wi-Fi '{env['WIFI_SSID']}'; open the IP shown on OLED")
+    else:
+        say("Connect to Wi-Fi 'HydroESP-Setup' (no password), then open http://192.168.4.1")
 
 
 def command_monitor(args) -> None:
@@ -403,8 +447,7 @@ def parser() -> argparse.ArgumentParser:
     ]:
         s = sub.add_parser(name, help=help_text)
         s.add_argument("--clean", action="store_true", help="clean PlatformIO build first")
-        s.add_argument("--factory-wifi", action="store_true", help="prompt for Wi-Fi credentials to embed as factory defaults")
-        s.add_argument("--timezone", type=int, choices=range(-12, 15), metavar="UTC", help="factory UTC offset (-12..14)")
+        s.add_argument("--timezone", type=int, choices=range(-12, 15), metavar="UTC", help="UTC offset (-12..14)")
         if name == "install":
             s.add_argument("--port", help="serial port; auto-detected when omitted")
         s.set_defaults(func=func)

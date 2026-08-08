@@ -1,5 +1,6 @@
 Import("env")
 
+import hashlib
 import os
 import subprocess
 
@@ -30,13 +31,18 @@ flags = [
     f"-DHYDRO_BUILD_SHA={c_string(sha)}",
 ]
 
-# Factory Wi-Fi credentials are optional. A normal build intentionally embeds no
-# network secret: on first boot the controller opens HydroESP-Setup instead.
+# Wi-Fi can be injected by hydroctl/install.sh from environment variables or a
+# local .env file. WIFI_SEED_ID makes those credentials a one-shot provisioning
+# seed: they are copied into NVS once, then later Web UI edits are respected.
 ssid = os.getenv("WIFI_SSID", "")
 password = os.getenv("WIFI_PASSWORD", "")
 if ssid:
+    seed_id = os.getenv("WIFI_SEED_ID", "").strip()
+    if not seed_id:
+        seed_id = hashlib.sha256((ssid + "\0" + password).encode("utf-8")).hexdigest()[:16]
     flags.append(f"-DWIFI_SSID={c_string(ssid)}")
     flags.append(f"-DWIFI_PASSWORD={c_string(password)}")
+    flags.append(f"-DWIFI_SEED_ID={c_string(seed_id)}")
 
 tz = os.getenv("TIMEZONE_OFFSET")
 if tz:
