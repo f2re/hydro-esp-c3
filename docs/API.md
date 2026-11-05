@@ -291,3 +291,16 @@ curl -X POST -H 'Content-Type: application/json' \
 ```
 
 Для обычной эксплуатации предпочтительнее `tools/hydroctl.py`.
+
+
+## Daily solar-follow schedule
+
+`GET /api/schedule/solar` returns persistent mode settings:
+
+```json
+{"enabled":true,"by_count":true,"count":16,"interval_min":60,"start_offset_min":0,"end_offset_min":0,"duration_sec":60}
+```
+
+`POST /api/schedule/solar` with JSON body and those same fields enables or changes the daily solar schedule. To disable and restore fixed schedule: `{"enabled":false}`. `enabled` must be a Boolean. Enabling requires NTP synchronization and configured coordinates. The backend rejects invalid parameters, excessively many or overlapping runs, or invalid daylight. Error responses are JSON with an `error` code (400/409/422). No browser-side timer is required.
+
+`GET /api/status` now also contains `solar_follow_enabled`, `solar_schedule_ready`, `solar_schedule_error`. When solar mode is enabled, `GET /api/schedule` shows **today's effective calculated slots**, not the stored manual fallback. `POST /api/schedule` (manual slots) and `POST /api/schedule/reset` both switch solar following off. Manual fallback slots stay in NVS while solar following is active.
