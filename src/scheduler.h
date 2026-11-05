@@ -10,6 +10,11 @@ public:
     void update();
     void updateConfig(const WateringSlot* schedule, uint8_t count);
     void setEnabled(bool enabled);
+    void configureSolar(const SolarPlanSettings &settings, float latitude, float longitude);
+    void refreshSolarPlan();
+    bool solarEnabled() const { return _solar.enabled; }
+    bool solarReady() const { return _solar.enabled && _solarError == SolarPlanError::None; }
+    SolarPlanError solarError() const { return _solarError; }
     bool isEnabled() const { return _enabled; }
 
     String getNextWateringString() const;
@@ -24,4 +29,9 @@ private:
     WateringSlot _schedule[MAX_SCHEDULE_SLOTS]{};
     uint8_t _count = 0;
     bool _enabled = true;
+    SolarPlanSettings _solar{};
+    float _solarLatitude = 0.0f;
+    float _solarLongitude = 0.0f;
+    uint32_t _solarDay = UINT32_MAX;
+    SolarPlanError _solarError = SolarPlanError::None;
 };

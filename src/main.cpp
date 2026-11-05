@@ -118,6 +118,7 @@ void setup() {
     Serial.println("[BOOT] relay controller ready/OFF");
     scheduler.begin(&relay, &ntpMgr);
     scheduler.updateConfig(appConfig.schedule, appConfig.schedule_count);
+    scheduler.configureSolar(appConfig.solar, appConfig.latitude, appConfig.longitude);
     scheduler.setEnabled(appConfig.automation_enabled);
 
     oled.drawBoot(2, "WiFi...");
