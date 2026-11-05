@@ -11,6 +11,7 @@ struct Config {
     float longitude = 0.0f;
     uint32_t last_solution_change = 0;
     bool automation_enabled = true;
+    SolarPlanSettings solar{};
     uint32_t pump_flow_ml_min = 0;
     uint8_t delivery_efficiency_pct = 85;
     uint8_t calibration_protocol_version = 0;
