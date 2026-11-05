@@ -135,6 +135,7 @@ void WebServerManager::setupRoutes() {
         doc["schedule_count"] = scheduler->count();
         doc["automation_enabled"] = scheduler->isEnabled();
         doc["solar_follow_enabled"] = scheduler->solarEnabled();
+        doc["solar_coordinates_configured"] = cfg.latitude != 0.0f || cfg.longitude != 0.0f;
         doc["solar_schedule_ready"] = scheduler->solarReady();
         doc["solar_schedule_error"] = solarPlanErrorCode(scheduler->solarError());
         float sunrise = 6.0f;

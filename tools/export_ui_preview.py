@@ -37,6 +37,10 @@ MOCK = {
         "next": "09:00",
         "schedule_count": 18,
         "automation_enabled": True,
+        "solar_follow_enabled": False,
+        "solar_coordinates_configured": True,
+        "solar_schedule_ready": False,
+        "solar_schedule_error": "ok",
         "pump_flow_lpm": 1.742,
         "delivery_efficiency_pct": 86,
         "hydraulics_calibrated": True,
@@ -50,6 +54,10 @@ MOCK = {
         "sunset": 20.9,
         "last_solution_change": 1786000000,
         "now_epoch": 1786174936,
+    },
+    "/api/schedule/solar": {
+        "enabled": False, "by_count": True, "count": 16, "interval_min": 60,
+        "start_offset_min": 0, "end_offset_min": 0, "duration_sec": 60,
     },
     "/api/schedule": [
         {"h": 6, "m": 0, "d": 120}, {"h": 6, "m": 40, "d": 90},
