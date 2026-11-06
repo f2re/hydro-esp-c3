@@ -134,6 +134,10 @@ void WebServerManager::setupRoutes() {
         doc["next"] = scheduler->getNextWateringString();
         doc["schedule_count"] = scheduler->count();
         doc["automation_enabled"] = scheduler->isEnabled();
+        doc["solar_follow_enabled"] = scheduler->solarEnabled();
+        doc["solar_coordinates_configured"] = cfg.latitude != 0.0f || cfg.longitude != 0.0f;
+        doc["solar_schedule_ready"] = scheduler->solarReady();
+        doc["solar_schedule_error"] = solarPlanErrorCode(scheduler->solarError());
         float sunrise = 6.0f;
         float sunset = 18.0f;
         ntp->getSunriseSunset(cfg.latitude, cfg.longitude, sunrise, sunset);
@@ -377,16 +381,108 @@ void WebServerManager::setupRoutes() {
     );
     server.addHandler(hydraulicsHandler);
 
-    server.on("/api/schedule", HTTP_GET, [](AsyncWebServerRequest *request) {
+    // Persistent solar-follow mode, distinct from one-shot browser preview.
+    server.on("/api/schedule/solar", HTTP_GET, [](AsyncWebServerRequest *request) {
+        Config cfg;
+        configStorage.load(cfg);
+        JsonDocument doc;
+        doc["enabled"] = cfg.solar.enabled;
+        doc["by_count"] = cfg.solar.by_count;
+        doc["count"] = cfg.solar.count;
+        doc["interval_min"] = cfg.solar.interval_min;
+        doc["start_offset_min"] = cfg.solar.start_offset_min;
+        doc["end_offset_min"] = cfg.solar.end_offset_min;
+        doc["duration_sec"] = cfg.solar.duration_sec;
+        sendJson(request, doc);
+    });
+
+    AsyncCallbackJsonWebHandler* solarHandler = new AsyncCallbackJsonWebHandler(
+        "/api/schedule/solar",
+        [this](AsyncWebServerRequest *request, JsonVariant &json) {
+            if (!json.is<JsonObject>()) {
+                request->send(400, "application/json", R"json({"error":"solar_settings_must_be_object"})json");
+                return;
+            }
+            JsonObject obj = json.as<JsonObject>();
+            if (!obj["enabled"].is<bool>()) {
+                request->send(400, "application/json", R"json({"error":"enabled_must_be_boolean"})json");
+                return;
+            }
+            Config cfg;
+            configStorage.load(cfg);
+            SolarPlanSettings settings = cfg.solar;
+            settings.enabled = obj["enabled"].as<bool>();
+            if (settings.enabled) {
+                if (!ntp->isSynced()) {
+                    request->send(409, "application/json", R"json({"error":"time_not_synced"})json");
+                    return;
+                }
+                if (cfg.latitude == 0.0f && cfg.longitude == 0.0f) {
+                    request->send(409, "application/json", R"json({"error":"coordinates_not_configured"})json");
+                    return;
+                }
+                if (!obj["by_count"].is<bool>() || !obj["count"].is<int>() ||
+                    !obj["interval_min"].is<int>() || !obj["start_offset_min"].is<int>() ||
+                    !obj["end_offset_min"].is<int>() || !obj["duration_sec"].is<int>()) {
+                    request->send(400, "application/json", R"json({"error":"invalid_solar_parameters"})json");
+                    return;
+                }
+                const int count = obj["count"].as<int>();
+                const int interval = obj["interval_min"].as<int>();
+                const int start = obj["start_offset_min"].as<int>();
+                const int end = obj["end_offset_min"].as<int>();
+                const int duration = obj["duration_sec"].as<int>();
+                if (count < 1 || count > MAX_SCHEDULE_SLOTS ||
+                    interval < 5 || interval > 720 || start < 0 || start > 360 ||
+                    end < 0 || end > 360 || duration < 1 || duration > MAX_WATERING_SECONDS) {
+                    request->send(400, "application/json", R"json({"error":"invalid_solar_parameters"})json");
+                    return;
+                }
+                settings.by_count = obj["by_count"].as<bool>();
+                settings.count = static_cast<uint8_t>(count);
+                settings.interval_min = static_cast<uint16_t>(interval);
+                settings.start_offset_min = static_cast<uint16_t>(start);
+                settings.end_offset_min = static_cast<uint16_t>(end);
+                settings.duration_sec = static_cast<uint16_t>(duration);
+
+                float sunrise = 0.0f, sunset = 0.0f;
+                ntp->getSunriseSunset(cfg.latitude, cfg.longitude, sunrise, sunset);
+                const SolarPlan plan = buildSolarPlan(sunrise, sunset, settings);
+                if (plan.error != SolarPlanError::None) {
+                    JsonDocument error;
+                    error["error"] = solarPlanErrorCode(plan.error);
+                    sendJson(request, error, 422);
+                    return;
+                }
+            }
+
+            cfg.solar = settings;
+            configStorage.save(cfg);
+            scheduler->configureSolar(cfg.solar, cfg.latitude, cfg.longitude);
+            if (!cfg.solar.enabled) scheduler->updateConfig(cfg.schedule, cfg.schedule_count);
+            eventLog.record(EventType::ScheduleChanged, PumpSource::None,
+                            PumpStopReason::None, scheduler->count());
+            JsonDocument response;
+            response["status"] = "ok";
+            response["enabled"] = cfg.solar.enabled;
+            response["count"] = scheduler->count();
+            sendJson(request, response);
+        }
+    );
+    server.addHandler(solarHandler);
+
+    server.on("/api/schedule", HTTP_GET, [this](AsyncWebServerRequest *request) {
         Config cfg;
         configStorage.load(cfg);
         JsonDocument doc;
         JsonArray arr = doc.to<JsonArray>();
-        for (uint8_t i = 0; i < cfg.schedule_count; ++i) {
+        for (uint8_t i = 0; i < scheduler->count(); ++i) {
+            WateringSlot slot{};
+            if (!scheduler->getSlot(i, slot)) continue;
             JsonObject obj = arr.add<JsonObject>();
-            obj["h"] = cfg.schedule[i].hour;
-            obj["m"] = cfg.schedule[i].minute;
-            obj["d"] = cfg.schedule[i].duration_sec;
+            obj["h"] = slot.hour;
+            obj["m"] = slot.minute;
+            obj["d"] = slot.duration_sec;
         }
         sendJson(request, doc);
     });
@@ -398,7 +494,9 @@ void WebServerManager::setupRoutes() {
         for (uint8_t i = 0; i < SCHEDULE_COUNT && i < MAX_SCHEDULE_SLOTS; ++i) {
             cfg.schedule[cfg.schedule_count++] = WATERING_SCHEDULE[i];
         }
+        cfg.solar.enabled = false; // Reset explicitly switches back to a fixed plan.
         configStorage.save(cfg);
+        scheduler->configureSolar(cfg.solar, cfg.latitude, cfg.longitude);
         scheduler->updateConfig(cfg.schedule, cfg.schedule_count);
         eventLog.record(EventType::ScheduleChanged, PumpSource::None,
                         PumpStopReason::None, cfg.schedule_count);
@@ -446,7 +544,9 @@ void WebServerManager::setupRoutes() {
             configStorage.load(cfg);
             cfg.schedule_count = count;
             for (uint8_t i = 0; i < count; ++i) cfg.schedule[i] = parsed[i];
+            cfg.solar.enabled = false; // Manual edits deliberately disable solar follow.
             configStorage.save(cfg);
+            scheduler->configureSolar(cfg.solar, cfg.latitude, cfg.longitude);
             scheduler->updateConfig(cfg.schedule, cfg.schedule_count);
             eventLog.record(EventType::ScheduleChanged, PumpSource::None,
                             PumpStopReason::None, count);

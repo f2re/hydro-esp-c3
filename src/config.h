@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include "solar_plan.h"
 
 // ── Hardware profile: ESP32-C3 Super Mini ────────────────────────────────
 #define OLED_SCL     6

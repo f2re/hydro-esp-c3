@@ -67,6 +67,13 @@ jobs:
           python tools/make_factory_image.py --help >/dev/null
           sh -n install.sh update.sh deploy.sh wifi-flash.sh
 
+      - name: Test solar daily plan on host
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_solar_plan.cpp -o /tmp/test_solar_plan
+          /tmp/test_solar_plan
+
       - name: Check embedded web UI, assets and schedule builder
         run: |
           python tools/check_web_ui.py

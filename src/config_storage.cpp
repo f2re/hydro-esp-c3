@@ -51,6 +51,14 @@ void ConfigStorage::load(Config &config) {
     config.last_solution_change = prefs.getUInt("sol_chg", 0);
 
     config.automation_enabled = prefs.getBool("auto", true);
+    config.solar.enabled = prefs.getBool("sun_auto", false);
+    config.solar.by_count = prefs.getBool("sun_count", true);
+    config.solar.count = prefs.getUChar("sun_runs", 16);
+    config.solar.interval_min = prefs.getUShort("sun_int", 60);
+    config.solar.start_offset_min = prefs.getUShort("sun_start", 0);
+    config.solar.end_offset_min = prefs.getUShort("sun_end", 0);
+    config.solar.duration_sec = prefs.getUShort("sun_dur", 60);
+    if (!solarSettingsValid(config.solar)) config.solar.enabled = false;
     config.pump_flow_ml_min = prefs.getUInt("flow_ml", 0);
     if (config.pump_flow_ml_min > 100000UL) {
         config.pump_flow_ml_min = 0;
@@ -119,6 +127,13 @@ void ConfigStorage::save(const Config &config) {
     prefs.putFloat("lon", config.longitude);
     prefs.putUInt("sol_chg", config.last_solution_change);
     prefs.putBool("auto", config.automation_enabled);
+    prefs.putBool("sun_auto", config.solar.enabled);
+    prefs.putBool("sun_count", config.solar.by_count);
+    prefs.putUChar("sun_runs", config.solar.count);
+    prefs.putUShort("sun_int", config.solar.interval_min);
+    prefs.putUShort("sun_start", config.solar.start_offset_min);
+    prefs.putUShort("sun_end", config.solar.end_offset_min);
+    prefs.putUShort("sun_dur", config.solar.duration_sec);
     prefs.putUInt("flow_ml", config.pump_flow_ml_min);
     prefs.putUChar("eff_pct", config.delivery_efficiency_pct);
     prefs.putUChar("cal_ver", config.calibration_protocol_version);
